@@ -1,4 +1,4 @@
-/* Copyright (c) 2019 PaddlePaddle Authors. All Rights Reserved.
+/* Copyright (c) 2020 PaddlePaddle Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -66,18 +66,18 @@ struct Timer {
   }
 };
 
-// template <typename T>
-// constexpr paddle::PaddleDType GetPaddleDType();
+template <typename T>
+constexpr paddle::PaddleDType GetPaddleDType();
 
-// template <>
-// constexpr paddle::PaddleDType GetPaddleDType<int64_t>() {
-//   return paddle::PaddleDType::INT64;
-// }
+template <>
+constexpr paddle::PaddleDType GetPaddleDType<int64_t>() {
+  return paddle::PaddleDType::INT64;
+}
 
-// template <>
-// constexpr paddle::PaddleDType GetPaddleDType<float>() {
-//   return paddle::PaddleDType::FLOAT32;
-// }
+template <>
+constexpr paddle::PaddleDType GetPaddleDType<float>() {
+  return paddle::PaddleDType::FLOAT32;
+}
 
 template <typename T>
 class TensorReader {
@@ -93,14 +93,14 @@ class TensorReader {
     paddle::PaddleTensor tensor;
     tensor.name = name_;
     tensor.shape = shape_;
-    // tensor.dtype = GetPaddleDType<T>();
-    if (std::is_same<T, int64_t>::value){
-      tensor.dtype = paddle::PaddleDType::INT64;
-    }else if(std::is_same<T, float>::value){
-      tensor.dtype = paddle::PaddleDType::FLOAT32;
-    }else{
-      throw std::runtime_error("Converting tensor type failed");
-    }
+    tensor.dtype = GetPaddleDType<T>();
+    // if (std::is_same<T, int64_t>::value){
+    //   tensor.dtype = paddle::PaddleDType::INT64;
+    // }else if(std::is_same<T, float>::value){
+    //   tensor.dtype = paddle::PaddleDType::FLOAT32;
+    // }else{
+    //   throw std::runtime_error("Converting tensor type failed");
+    // }
 
     file_.seekg(position_);
     file_.read(static_cast<char *>(tensor.data.data()), numel_ * sizeof(T));
@@ -109,7 +109,6 @@ class TensorReader {
     if (file_.eof()) LOG(ERROR) << name_ << ": reached end of stream";
     if (file_.fail())
       throw std::runtime_error(name_ + ": failed reading file.");
-
     return tensor;
   }
 
@@ -174,8 +173,9 @@ void SetInput(std::vector<std::vector<paddle::PaddleTensor>> *inputs,
   if (!file) {
     throw std::runtime_error("Couldn't open file: " + FLAGS_infer_data);
   }
-
+  
   int64_t total_images{0};
+  file.seekg (0, std::ios::beg);
   file.read(reinterpret_cast<char *>(&total_images), sizeof(total_images));
   LOG(INFO) << "Total images in file: " << total_images;
 
@@ -207,6 +207,7 @@ void SetInput(std::vector<std::vector<paddle::PaddleTensor>> *inputs,
     }
     inputs->push_back(std::move(tmp_vec));
   }
+  file.close();
 }
 
 static void PrintTime(int batch_size, int repeat, int num_threads, int tid,
