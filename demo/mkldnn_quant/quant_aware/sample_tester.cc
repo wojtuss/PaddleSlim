@@ -37,7 +37,7 @@ DEFINE_string(infer_data, "", "input data path");
 DEFINE_int32(repeat, 1, "repeat");
 DEFINE_int32(warmup_size, 0, "warm up samples");
 DEFINE_int32(batch_size, 50, "batch size");
-DEFINE_int32(iterations, 0, "number of batches to process, by default test whole set");
+DEFINE_int32(iterations, 2, "number of batches to process, by default test whole set");
 DEFINE_int32(num_threads, 1, "num_threads");
 DEFINE_bool(with_accuracy_layer, true, "label is required in the input of the inference model");
 DEFINE_bool(record_benchmark, false, "Record benchmark after profiling the model");
@@ -101,11 +101,12 @@ class TensorReader {
     // }else{
     //   throw std::runtime_error("Converting tensor type failed");
     // }
-
+    std::cout<<"position_ before reading the data: " <<position_<<std::endl;
     file_.seekg(position_);
+    std::cout<<"numel_:"<<numel_<<" sizeof(T):"<<sizeof(T)<<std::endl;
     file_.read(static_cast<char *>(tensor.data.data()), numel_ * sizeof(T));
     position_ = file_.tellg();
-
+    std::cout<<"position_ after reading the data: " <<position_<<std::endl;
     if (file_.eof()) LOG(ERROR) << name_ << ": reached end of stream";
     if (file_.fail())
       throw std::runtime_error(name_ + ": failed reading file.");
@@ -207,7 +208,6 @@ void SetInput(std::vector<std::vector<paddle::PaddleTensor>> *inputs,
     }
     inputs->push_back(std::move(tmp_vec));
   }
-  file.close();
 }
 
 static void PrintTime(int batch_size, int repeat, int num_threads, int tid,
