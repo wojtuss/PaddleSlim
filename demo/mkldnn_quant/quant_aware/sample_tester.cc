@@ -40,7 +40,6 @@ DEFINE_int32(batch_size, 50, "batch size");
 DEFINE_int32(iterations, 2, "number of batches to process, by default test whole set");
 DEFINE_int32(num_threads, 1, "num_threads");
 DEFINE_bool(with_accuracy_layer, true, "label is required in the input of the inference model");
-DEFINE_bool(record_benchmark, false, "Record benchmark after profiling the model");
 DEFINE_bool(use_profile, false, "Do profile or not");
 static void SetConfig(paddle::AnalysisConfig *cfg) {
   cfg->SetModel(FLAGS_infer_model);
@@ -108,6 +107,7 @@ class TensorReader {
     position_ = file_.tellg();
     std::cout<<"position_ after reading the data: " <<position_<<std::endl;
     if (file_.eof()) LOG(ERROR) << name_ << ": reached end of stream";
+    if (file_.bad())  LOG(ERROR) << name_ <<"ERROR: badbit is true";
     if (file_.fail())
       throw std::runtime_error(name_ + ": failed reading file.");
     return tensor;
@@ -199,6 +199,7 @@ void SetInput(std::vector<std::vector<paddle::PaddleTensor>> *inputs,
   TensorReader<int64_t> label_reader(file, labels_offset_in_file,
                                      label_batch_shape, "label");
   for (auto i = 0; i < iterations; i++) {
+    std::cout<<"iteration i:"<<i<<std::endl;
     auto images = image_reader.NextBatch();
     std::vector<paddle::PaddleTensor> tmp_vec;
     tmp_vec.push_back(std::move(images));

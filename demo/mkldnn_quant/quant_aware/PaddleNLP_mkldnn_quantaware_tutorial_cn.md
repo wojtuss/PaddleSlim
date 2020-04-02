@@ -92,14 +92,7 @@ step2: 开始训练
 请在PaddleDetection根目录下运行。
 
 ```
-python slim/quantization/train.py --not_quant_pattern yolo_output \
-    --eval \
-    -c ./configs/yolov3_mobilenet_v1.yml \
-    -o max_iters=30000 \
-    save_dir=./output/mobilenetv1 \
-    LearningRate.base_lr=0.0001 \
-    LearningRate.schedulers="[!PiecewiseDecay {gamma: 0.1, milestones: [10000]}]" \
-    pretrain_weights=https://paddlemodels.bj.bcebos.com/object_detection/yolov3_mobilenet_v1.tar
+
 ```
 
 >通过命令行覆设置max_iters选项，因为量化的训练轮次比正常训练小很多，所以需要修改此选项。
