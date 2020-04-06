@@ -24,17 +24,14 @@ limitations under the License. */
 #include <paddle_inference_api.h>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
-
 #ifdef WITH_GPERFTOOLS
 #include <paddle/fluid/platform/profiler.h>
 #include <gperftools/profiler.h>
 DECLARE_bool(profile);
 #endif
 
-
 DEFINE_string(infer_model, "", "model directory");
 DEFINE_string(infer_data, "", "input data path");
-DEFINE_int32(repeat, 1, "repeat");
 DEFINE_int32(warmup_size, 0, "warm up samples");
 DEFINE_int32(batch_size, 50, "batch size");
 DEFINE_int32(iterations, 2, "number of batches to process, by default test whole set");
@@ -93,19 +90,10 @@ class TensorReader {
     tensor.name = name_;
     tensor.shape = shape_;
     tensor.dtype = GetPaddleDType<T>();
-    // if (std::is_same<T, int64_t>::value){
-    //   tensor.dtype = paddle::PaddleDType::INT64;
-    // }else if(std::is_same<T, float>::value){
-    //   tensor.dtype = paddle::PaddleDType::FLOAT32;
-    // }else{
-    //   throw std::runtime_error("Converting tensor type failed");
-    // }
-    std::cout<<"position_ before reading the data: " <<position_<<std::endl;
+    tensor.data.Resize(numel_*sizeof(T));
     file_.seekg(position_);
-    std::cout<<"numel_:"<<numel_<<" sizeof(T):"<<sizeof(T)<<std::endl;
     file_.read(static_cast<char *>(tensor.data.data()), numel_ * sizeof(T));
     position_ = file_.tellg();
-    std::cout<<"position_ after reading the data: " <<position_<<std::endl;
     if (file_.eof()) LOG(ERROR) << name_ << ": reached end of stream";
     if (file_.bad())  LOG(ERROR) << name_ <<"ERROR: badbit is true";
     if (file_.fail())
@@ -123,19 +111,15 @@ class TensorReader {
 
 std::shared_ptr<std::vector<paddle::PaddleTensor>> GetWarmupData(
     const std::vector<std::vector<paddle::PaddleTensor>> &test_data,
+    bool with_accuracy_layer = FLAGS_with_accuracy_layer,
     int num_images = FLAGS_warmup_size) {
   int test_data_batch_size = test_data[0][0].shape[0];
   auto iterations = test_data.size();
   auto all_test_data_size = iterations * test_data_batch_size;
-  // PADDLE_ENFORCE_LE(static_cast<size_t>(num_images), all_test_data_size,
-  //                   paddle::platform::errors::InvalidArgument(
-  //                       "The requested quantization warmup data size must be "
-  //                       "lower or equal to the test data size. But received"
-  //                       "warmup size is %d and test data size is %d. Please "
-  //                       "use --warmup_batch_size parameter to set smaller "
-  //                       "warmup batch size.",
-  //                       num_images, all_test_data_size));
-
+  CHECK_LE(static_cast<size_t>(num_images), all_test_data_size)<< "warmup size must be smaller than test data size";
+  // if (static_cast<size_t>(num_images)<=all_test_data_size) 
+  //   LOG(ERROR) << "warmup size must be smaller than test data size";
+  
   paddle::PaddleTensor images;
   images.name = "image";
   images.shape = {num_images, 3, 224, 224};
@@ -155,15 +139,20 @@ std::shared_ptr<std::vector<paddle::PaddleTensor>> GetWarmupData(
                     element_in_batch * 3 * 224 * 224,
                 3 * 224 * 224,
                 static_cast<float *>(images.data.data()) + i * 3 * 224 * 224);
-
-    std::copy_n(static_cast<int64_t *>(test_data[batch][1].data.data()) +
-                    element_in_batch,
-                1, static_cast<int64_t *>(labels.data.data()) + i);
+    if (FLAGS_with_accuracy_layer){
+      std::copy_n(static_cast<int64_t *>(test_data[batch][1].data.data()) +
+                    element_in_batch, 1, static_cast<int64_t *>(labels.data.data()) + i);
+    }
   }
-
-  auto warmup_data = std::make_shared<std::vector<paddle::PaddleTensor>>(2);
-  (*warmup_data)[0] = std::move(images);
-  (*warmup_data)[1] = std::move(labels);
+  std::shared_ptr<std::vector<paddle::PaddleTensor>> warmup_data;
+  if(with_accuracy_layer){
+    warmup_data = std::make_shared<std::vector<paddle::PaddleTensor>>(2);
+    (*warmup_data)[0] = std::move(images);
+    (*warmup_data)[1] = std::move(labels);
+  }else{
+    warmup_data = std::make_shared<std::vector<paddle::PaddleTensor>>(1);
+    (*warmup_data)[0] = std::move(images);
+  }
   return warmup_data;
 }
 
@@ -199,7 +188,6 @@ void SetInput(std::vector<std::vector<paddle::PaddleTensor>> *inputs,
   TensorReader<int64_t> label_reader(file, labels_offset_in_file,
                                      label_batch_shape, "label");
   for (auto i = 0; i < iterations; i++) {
-    std::cout<<"iteration i:"<<i<<std::endl;
     auto images = image_reader.NextBatch();
     std::vector<paddle::PaddleTensor> tmp_vec;
     tmp_vec.push_back(std::move(images));
@@ -208,21 +196,21 @@ void SetInput(std::vector<std::vector<paddle::PaddleTensor>> *inputs,
       tmp_vec.push_back(std::move(labels));
     }
     inputs->push_back(std::move(tmp_vec));
+    LOG(INFO) <<"Read "<< (i+1)*batch_size <<" images";
   }
 }
 
-static void PrintTime(int batch_size, int repeat, int num_threads, int tid,
-                      double batch_latency, int epoch = 1) {
+static void PrintTime(int batch_size, int num_threads, 
+                      double batch_latency, float top1_acc, int epoch = 1) {
   // PADDLE_ENFORCE_GT(batch_size, 0, "Non-positive batch size.");
   double sample_latency = batch_latency / batch_size;
-  LOG(INFO) << "====== threads: " << num_threads << ", thread id: " << tid
-            << " ======";
-  LOG(INFO) << "====== batch size: " << batch_size << ", iterations: " << epoch
-            << ", repetitions: " << repeat << " ======";
+  LOG(INFO) << "====== num of threads: " << num_threads << " ======";
+  LOG(INFO) << "====== batch size: " << batch_size << ", iterations: " << epoch;
   LOG(INFO) << "====== batch latency: " << batch_latency
-            << "ms, number of samples: " << batch_size * epoch
-            << ", sample latency: " << sample_latency
+            << "ms, number of samples: " << batch_size * epoch;
+  LOG(INFO) << ", sample latency: " << sample_latency
             << "ms, fps: " << 1000.f / sample_latency << " ======";
+  LOG(INFO) << "top 1 accuracy: " << top1_acc << "======";
 }
 
 std::unique_ptr<paddle::PaddlePredictor> CreatePredictor(
@@ -236,16 +224,15 @@ std::unique_ptr<paddle::PaddlePredictor> CreatePredictor(
 }
 
 static void PredictionWarmUp(paddle::PaddlePredictor *predictor,
-                      const std::vector<std::vector<paddle::PaddleTensor>> &inputs,
-                      std::vector<std::vector<paddle::PaddleTensor>> *outputs,
-                      int num_threads, int tid) {
+                      std::shared_ptr<std::vector<paddle::PaddleTensor>> inputs,
+                      std::vector<paddle::PaddleTensor> *output,
+                      int num_threads) {
   int batch_size = FLAGS_batch_size;
-  LOG(INFO) << "Running thread " << tid << ", warm up run...";
-  outputs->resize(1);
+  LOG(INFO) << "Warmup run...";
   Timer warmup_timer;
   warmup_timer.tic();
-  predictor->Run(inputs[0], &(*outputs)[0], batch_size);
-  PrintTime(batch_size, 1, num_threads, tid, warmup_timer.toc(), 1);
+  predictor->Run(*inputs, output, batch_size);
+  PrintTime(batch_size, num_threads, warmup_timer.toc(), 0.0, 1);
   #ifdef WITH_GPERFTOOLS
   if (FLAGS_use_profile) {
     paddle::platform::ResetProfiler();
@@ -256,17 +243,13 @@ static void PredictionWarmUp(paddle::PaddlePredictor *predictor,
 void PredictionRun(paddle::PaddlePredictor *predictor,
                    const std::vector<std::vector<paddle::PaddleTensor>> &inputs,
                    std::vector<std::vector<paddle::PaddleTensor>> *outputs,
-                   int num_threads, int tid,
-                   float *sample_latency = nullptr) {
-  int num_times = FLAGS_repeat;
+                   int num_threads, float *sample_latency = nullptr) {
   int iterations = inputs.size();  // process the whole dataset ...
   if (FLAGS_iterations > 0 &&
       FLAGS_iterations < static_cast<int64_t>(inputs.size()))
     iterations =
         FLAGS_iterations;  // ... unless the number of iterations is set
   outputs->resize(iterations);
-  LOG(INFO) << "Thread " << tid << ", number of threads " << num_threads
-            << ", run " << num_times << " times...";
   Timer run_timer;
   double elapsed_time = 0;
 #ifdef WITH_GPERFTOOLS
@@ -276,9 +259,7 @@ void PredictionRun(paddle::PaddlePredictor *predictor,
   
   for (int i = 0; i < iterations; i++) {
     run_timer.tic();
-    for (int j = 0; j < num_times; j++) {
-      predictor->Run(inputs[i], &(*outputs)[i], FLAGS_batch_size);
-    }
+    predictor->Run(inputs[i], &(*outputs)[i], FLAGS_batch_size);
     elapsed_time += run_timer.toc();
 
     predicted_num += FLAGS_batch_size;
@@ -291,8 +272,15 @@ void PredictionRun(paddle::PaddlePredictor *predictor,
   ProfilerStop();
 #endif
 
-  auto batch_latency = elapsed_time / (iterations * num_times);
-  PrintTime(FLAGS_batch_size, num_times, num_threads, tid, batch_latency,
+  auto batch_latency = elapsed_time / iterations;
+  float total_accs = 0.0;
+  std::cout<<"WARNING1111! I have some problem here"<<std::endl;
+  for (size_t i = 0; i < outputs->size(); ++i) {
+    total_accs += *static_cast<float *>((*outputs)[i][1].data.data());
+  }
+  std::cout<<"WARNING2222! I have some problem here"<<std::endl;
+  total_accs = total_accs / outputs->size();
+  PrintTime(FLAGS_batch_size, num_threads, batch_latency, total_accs,
             iterations);
 
   if (sample_latency != nullptr)
@@ -308,12 +296,13 @@ int main(int argc, char *argv[]) {
   // read data from file and prepare batches with test data
   std::vector<std::vector<paddle::PaddleTensor>> input_slots_all;
   std::vector<std::vector<paddle::PaddleTensor>> outputs;
-  SetInput(&input_slots_all);
-  
+  SetInput(&input_slots_all); //iterations*batch_size
   auto predictor = CreatePredictor(reinterpret_cast<paddle::PaddlePredictor::Config *>(&cfg), true);
   if(FLAGS_warmup_size){
-    PredictionWarmUp(predictor.get(), input_slots_all, &outputs, 1, 0);
+    std::shared_ptr<std::vector<paddle::PaddleTensor>> warmup_data=GetWarmupData(input_slots_all);
+    std::vector<paddle::PaddleTensor> output;
+    PredictionWarmUp(predictor.get(), warmup_data, &output, FLAGS_num_threads);
   }
-  PredictionRun(predictor.get(), input_slots_all, &outputs, 1, 0);
+  PredictionRun(predictor.get(), input_slots_all, &outputs, FLAGS_num_threads);
 }
 
