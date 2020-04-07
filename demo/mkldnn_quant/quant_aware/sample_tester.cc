@@ -20,6 +20,7 @@ limitations under the License. */
 #include <sstream>
 #include <string>
 #include <vector>
+#include <algorithm>
 #include <iomanip>
 #include <paddle_inference_api.h>
 #include <gflags/gflags.h>
@@ -117,8 +118,6 @@ std::shared_ptr<std::vector<paddle::PaddleTensor>> GetWarmupData(
   auto iterations = test_data.size();
   auto all_test_data_size = iterations * test_data_batch_size;
   CHECK_LE(static_cast<size_t>(num_images), all_test_data_size)<< "warmup size must be smaller than test data size";
-  // if (static_cast<size_t>(num_images)<=all_test_data_size) 
-  //   LOG(ERROR) << "warmup size must be smaller than test data size";
   
   paddle::PaddleTensor images;
   images.name = "image";
@@ -156,7 +155,7 @@ std::shared_ptr<std::vector<paddle::PaddleTensor>> GetWarmupData(
   return warmup_data;
 }
 
-void SetInput(std::vector<std::vector<paddle::PaddleTensor>> *inputs,
+void SetInput(std::vector<std::vector<paddle::PaddleTensor>> *inputs, std::vector<paddle::PaddleTensor> *labels_gt,
               bool with_accuracy_layer = FLAGS_with_accuracy_layer,
               int32_t batch_size = FLAGS_batch_size) {
   std::ifstream file(FLAGS_infer_data, std::ios::binary);
@@ -191,9 +190,11 @@ void SetInput(std::vector<std::vector<paddle::PaddleTensor>> *inputs,
     auto images = image_reader.NextBatch();
     std::vector<paddle::PaddleTensor> tmp_vec;
     tmp_vec.push_back(std::move(images));
+    auto labels = label_reader.NextBatch();
     if (with_accuracy_layer) {
-      auto labels = label_reader.NextBatch();
       tmp_vec.push_back(std::move(labels));
+    }else{
+      labels_gt->push_back(std::move(labels));
     }
     inputs->push_back(std::move(tmp_vec));
     LOG(INFO) <<"Read "<< (i+1)*batch_size <<" images";
@@ -201,7 +202,7 @@ void SetInput(std::vector<std::vector<paddle::PaddleTensor>> *inputs,
 }
 
 static void PrintTime(int batch_size, int num_threads, 
-                      double batch_latency, float top1_acc, int epoch = 1) {
+                      double batch_latency, int epoch = 1) {
   // PADDLE_ENFORCE_GT(batch_size, 0, "Non-positive batch size.");
   double sample_latency = batch_latency / batch_size;
   LOG(INFO) << "====== num of threads: " << num_threads << " ======";
@@ -210,7 +211,6 @@ static void PrintTime(int batch_size, int num_threads,
             << "ms, number of samples: " << batch_size * epoch;
   LOG(INFO) << ", sample latency: " << sample_latency
             << "ms, fps: " << 1000.f / sample_latency << " ======";
-  LOG(INFO) << "top 1 accuracy: " << top1_acc << "======";
 }
 
 std::unique_ptr<paddle::PaddlePredictor> CreatePredictor(
@@ -232,7 +232,7 @@ static void PredictionWarmUp(paddle::PaddlePredictor *predictor,
   Timer warmup_timer;
   warmup_timer.tic();
   predictor->Run(*inputs, output, batch_size);
-  PrintTime(batch_size, num_threads, warmup_timer.toc(), 0.0, 1);
+  PrintTime(batch_size, num_threads, warmup_timer.toc(), 1);
   #ifdef WITH_GPERFTOOLS
   if (FLAGS_use_profile) {
     paddle::platform::ResetProfiler();
@@ -264,29 +264,68 @@ void PredictionRun(paddle::PaddlePredictor *predictor,
 
     predicted_num += FLAGS_batch_size;
     if (predicted_num % 100 == 0) {
-      LOG(INFO) << predicted_num << " samples";
+      LOG(INFO) << "Infer "<<predicted_num << " samples";
     }
   }
+  // LOG(WARNING)<<"WARNING! outputs second dimension "<<(*outputs)[0].size(); // for model with accuracy, it is 3
+  LOG(WARNING)<<"WARNING! outputs second dimension "<<(*outputs)[0][0].data.length(); //for model without accuracy
+  // LOG(WARNING) << "WARNING! outputs iteration i results " << *static_cast<float *>((*outputs)[0][0].data.data());
 
 #ifdef WITH_GPERFTOOLS
   ProfilerStop();
 #endif
 
   auto batch_latency = elapsed_time / iterations;
-  float total_accs = 0.0;
-  std::cout<<"WARNING1111! I have some problem here"<<std::endl;
-  for (size_t i = 0; i < outputs->size(); ++i) {
-    total_accs += *static_cast<float *>((*outputs)[i][1].data.data());
-  }
-  std::cout<<"WARNING2222! I have some problem here"<<std::endl;
-  total_accs = total_accs / outputs->size();
-  PrintTime(FLAGS_batch_size, num_threads, batch_latency, total_accs,
+  PrintTime(FLAGS_batch_size, num_threads, batch_latency,
             iterations);
 
   if (sample_latency != nullptr)
     *sample_latency = batch_latency / FLAGS_batch_size;
 }
 
+bool cmp(const std::pair<float, int64_t> a, const std::pair<float, int64_t> b)
+ {return (a.first>b.first);}
+
+std::pair<float, float> CalculateAccuracy(const std::vector<std::vector<paddle::PaddleTensor>> &outputs, bool with_accuracy, const std::vector<paddle::PaddleTensor> &labels_gt){
+  LOG_IF(ERROR, !with_accuracy&&labels_gt.size()==0) << "if with_accuracy set to false, labels_gt must be not empty";
+  if(!with_accuracy){
+    float *result_array;//for one batch 50*1000
+    int64_t *batch_labels;//50*1
+    LOG_IF(ERROR, outputs.size()!=labels_gt.size()) << "outputs first dimension must be equal to labels_gt first dimension";
+    std::vector<float> acc1_ss;
+    std::vector<float> acc5_ss;
+    for (size_t i=0; i < outputs.size();++i){// same as labels first dimension
+      result_array = static_cast<float*>(outputs[i][0].data.data());
+      batch_labels = static_cast<int64_t*>(labels_gt[i].data.data());
+      int correct_1 = 0, correct_5 = 0, total = FLAGS_batch_size;
+      for(int j=0; j<FLAGS_batch_size;j++){//batch_size
+         std::vector<float> v(result_array + j*1000, result_array + (j+1)*1000);
+	 std::vector < std::pair<float, int> > vx;
+	 for(int k = 0;k < 1000;k++){
+	    vx.push_back(std::make_pair(v[k], k)); 
+	 }
+         std::partial_sort(vx.begin(), vx.begin()+5, vx.end(), cmp);
+	 std::vector<int> v_indexes;
+	 for (int m=0;m<5;m++){
+             v_indexes.push_back(vx[m].second);
+	 }
+         if (static_cast<int>(batch_labels[j]) == v_indexes[0]) 
+		 correct_1+=1;
+	 if (std::find(v_indexes.begin(),v_indexes.end(), static_cast<int>(batch_labels[j]))!=v_indexes.end());
+		 correct_5+=1;
+      }
+      acc1_ss.push_back((float)correct_1/total);
+      acc5_ss.push_back((float)correct_5/total);
+    }
+    auto acc1_ss_avg=std::accumulate(acc1_ss.begin(), acc1_ss.end(), 0.0)/acc1_ss.size();
+    auto acc5_ss_avg=std::accumulate(acc5_ss.begin(), acc5_ss.end(), 0.0)/acc5_ss.size();
+    return std::make_pair(acc1_ss_avg, acc5_ss_avg);
+  }
+  else{//model with_accuracy_layer = true
+  
+  }
+}
+        
 int main(int argc, char *argv[]) {
   // InitFLAGS(argc, argv);
   google::InitGoogleLogging(*argv);
@@ -296,7 +335,8 @@ int main(int argc, char *argv[]) {
   // read data from file and prepare batches with test data
   std::vector<std::vector<paddle::PaddleTensor>> input_slots_all;
   std::vector<std::vector<paddle::PaddleTensor>> outputs;
-  SetInput(&input_slots_all); //iterations*batch_size
+  std::vector<paddle::PaddleTensor> labels_gt;// optional
+  SetInput(&input_slots_all, &labels_gt); //iterations*batch_size
   auto predictor = CreatePredictor(reinterpret_cast<paddle::PaddlePredictor::Config *>(&cfg), true);
   if(FLAGS_warmup_size){
     std::shared_ptr<std::vector<paddle::PaddleTensor>> warmup_data=GetWarmupData(input_slots_all);
@@ -304,5 +344,8 @@ int main(int argc, char *argv[]) {
     PredictionWarmUp(predictor.get(), warmup_data, &output, FLAGS_num_threads);
   }
   PredictionRun(predictor.get(), input_slots_all, &outputs, FLAGS_num_threads);
+  auto acc_pair = CalculateAccuracy(outputs, FLAGS_with_accuracy_layer, labels_gt);
+  LOG(INFO)<<"top1 acc "<<acc_pair.first 
+	  <<", top5 acc "<<acc_pair.second;
 }
 
