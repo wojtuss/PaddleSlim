@@ -286,19 +286,19 @@ void PredictionRun(paddle::PaddlePredictor *predictor,
 bool cmp(const std::pair<float, int64_t> a, const std::pair<float, int64_t> b)
  {return (a.first>b.first);}
 
-std::pair<float, float> CalculateAccuracy(const std::vector<std::vector<paddle::PaddleTensor>> &outputs, bool with_accuracy, const std::vector<paddle::PaddleTensor> &labels_gt){
+std::pair<float, float> CalculateAccuracy(const std::vector<std::vector<paddle::PaddleTensor>> &outputs, const std::vector<paddle::PaddleTensor> &labels_gt, bool with_accuracy=FLAGS_with_accuracy_layer){
   LOG_IF(ERROR, !with_accuracy&&labels_gt.size()==0) << "if with_accuracy set to false, labels_gt must be not empty";
+  std::vector<float> acc1_ss;
+  std::vector<float> acc5_ss;
   if(!with_accuracy){
     float *result_array;//for one batch 50*1000
     int64_t *batch_labels;//50*1
     LOG_IF(ERROR, outputs.size()!=labels_gt.size()) << "outputs first dimension must be equal to labels_gt first dimension";
-    std::vector<float> acc1_ss;
-    std::vector<float> acc5_ss;
-    for (size_t i=0; i < outputs.size();++i){// same as labels first dimension
+    for (auto i=0; i < outputs.size();++i){// same as labels first dimension
       result_array = static_cast<float*>(outputs[i][0].data.data());
       batch_labels = static_cast<int64_t*>(labels_gt[i].data.data());
       int correct_1 = 0, correct_5 = 0, total = FLAGS_batch_size;
-      for(int j=0; j<FLAGS_batch_size;j++){//batch_size
+      for(auto j=0; j<FLAGS_batch_size;j++){//batch_size
          std::vector<float> v(result_array + j*1000, result_array + (j+1)*1000);
 	 std::vector < std::pair<float, int> > vx;
 	 for(int k = 0;k < 1000;k++){
@@ -317,13 +317,17 @@ std::pair<float, float> CalculateAccuracy(const std::vector<std::vector<paddle::
       acc1_ss.push_back((float)correct_1/total);
       acc5_ss.push_back((float)correct_5/total);
     }
-    auto acc1_ss_avg=std::accumulate(acc1_ss.begin(), acc1_ss.end(), 0.0)/acc1_ss.size();
-    auto acc5_ss_avg=std::accumulate(acc5_ss.begin(), acc5_ss.end(), 0.0)/acc5_ss.size();
-    return std::make_pair(acc1_ss_avg, acc5_ss_avg);
   }
   else{//model with_accuracy_layer = true
-  
+    for(auto i=0;i<outputs.size();++i){
+      LOG_IF(ERROR, outputs[i].size()<3UL)<<"To get top1 and top5 accuracy, output[i] size must be bigger than or equal to 3";
+      acc1_ss.push_back(*static_cast<float *>(outputs[i][1].data.data())); // 1 is top1 acc
+      acc5_ss.push_back(*static_cast<float *>(outputs[i][2].data.data())); // 2 is top5 acc or mAP		   
+    }
   }
+  auto acc1_ss_avg=std::accumulate(acc1_ss.begin(), acc1_ss.end(), 0.0)/acc1_ss.size();
+  auto acc5_ss_avg=std::accumulate(acc5_ss.begin(), acc5_ss.end(), 0.0)/acc5_ss.size();
+  return std::make_pair(acc1_ss_avg, acc5_ss_avg);
 }
         
 int main(int argc, char *argv[]) {
@@ -344,7 +348,7 @@ int main(int argc, char *argv[]) {
     PredictionWarmUp(predictor.get(), warmup_data, &output, FLAGS_num_threads);
   }
   PredictionRun(predictor.get(), input_slots_all, &outputs, FLAGS_num_threads);
-  auto acc_pair = CalculateAccuracy(outputs, FLAGS_with_accuracy_layer, labels_gt);
+  auto acc_pair = CalculateAccuracy(outputs, labels_gt);
   LOG(INFO)<<"top1 acc "<<acc_pair.first 
 	  <<", top5 acc "<<acc_pair.second;
 }
