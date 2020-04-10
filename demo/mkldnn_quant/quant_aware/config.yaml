@@ -1,6 +1,6 @@
 ---
 # weight quantize type, default is "channel_wise_abs_max"
-weight_quantize_type: "moving_average_abs_max"
+weight_quantize_type: "channel_wise_abs_max"
 # activation quantize type, default is "moving_average_abs_max"
 activation_quantize_type: "moving_average_abs_max"
 # weight quantize bit num, default is 8
