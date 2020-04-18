@@ -31,7 +31,6 @@ limitations under the License. */
 
 DEFINE_string(infer_model, "", "model directory");
 DEFINE_string(infer_data, "", "input data path");
-DEFINE_int32(warmup_size, 0, "warm up samples");
 DEFINE_int32(batch_size, 50, "batch size");
 DEFINE_int32(iterations,
              2,
@@ -117,54 +116,6 @@ class TensorReader {
   size_t numel_;
 };
 
-std::shared_ptr<std::vector<paddle::PaddleTensor>> GetWarmupData(
-    const std::vector<std::vector<paddle::PaddleTensor>> &test_data,
-    bool with_accuracy_layer = FLAGS_with_accuracy_layer,
-    int num_images = FLAGS_warmup_size) {
-  int test_data_batch_size = test_data[0][0].shape[0];
-  auto iterations = test_data.size();
-  auto all_test_data_size = iterations * test_data_batch_size;
-  CHECK_LE(static_cast<size_t>(num_images), all_test_data_size)
-      << "warmup size must be smaller than test data size";
-
-  paddle::PaddleTensor images;
-  images.name = "image";
-  images.shape = {num_images, 3, 224, 224};
-  images.dtype = paddle::PaddleDType::FLOAT32;
-  images.data.Resize(sizeof(float) * num_images * 3 * 224 * 224);
-
-  paddle::PaddleTensor labels;
-  labels.name = "label";
-  labels.shape = {num_images, 1};
-  labels.dtype = paddle::PaddleDType::INT64;
-  labels.data.Resize(sizeof(int64_t) * num_images);
-
-  for (int i = 0; i < num_images; i++) {
-    auto batch = i / test_data_batch_size;
-    auto element_in_batch = i % test_data_batch_size;
-    std::copy_n(static_cast<float *>(test_data[batch][0].data.data()) +
-                    element_in_batch * 3 * 224 * 224,
-                3 * 224 * 224,
-                static_cast<float *>(images.data.data()) + i * 3 * 224 * 224);
-    if (FLAGS_with_accuracy_layer) {
-      std::copy_n(static_cast<int64_t *>(test_data[batch][1].data.data()) +
-                      element_in_batch,
-                  1,
-                  static_cast<int64_t *>(labels.data.data()) + i);
-    }
-  }
-  std::shared_ptr<std::vector<paddle::PaddleTensor>> warmup_data;
-  if (with_accuracy_layer) {
-    warmup_data = std::make_shared<std::vector<paddle::PaddleTensor>>(2);
-    (*warmup_data)[0] = std::move(images);
-    (*warmup_data)[1] = std::move(labels);
-  } else {
-    warmup_data = std::make_shared<std::vector<paddle::PaddleTensor>>(1);
-    (*warmup_data)[0] = std::move(images);
-  }
-  return warmup_data;
-}
-
 void SetInput(std::vector<std::vector<paddle::PaddleTensor>> *inputs,
               std::vector<paddle::PaddleTensor> *labels_gt,
               bool with_accuracy_layer = FLAGS_with_accuracy_layer,
@@ -208,7 +159,6 @@ void SetInput(std::vector<std::vector<paddle::PaddleTensor>> *inputs,
       labels_gt->push_back(std::move(labels));
     }
     inputs->push_back(std::move(tmp_vec));
-    //LOG(INFO) << "Read " << (i + 1) * batch_size << " images";
   }
 }
 
@@ -217,6 +167,7 @@ static void PrintTime(int batch_size,
                       double batch_latency,
                       int epoch = 1) {
   double sample_latency = batch_latency / batch_size;
+  LOG(INFO) <<"Model: "<<FLAGS_infer_model;
   LOG(INFO) << "====== num of threads: " << num_threads << " ======";
   LOG(INFO) << "====== batch size: " << batch_size << ", iterations: " << epoch;
   LOG(INFO) << "====== batch latency: " << batch_latency
@@ -237,24 +188,6 @@ std::unique_ptr<paddle::PaddlePredictor> CreatePredictor(
   return paddle::CreatePaddlePredictor<paddle::NativeConfig>(native_config);
 }
 
-static void PredictionWarmUp(
-    paddle::PaddlePredictor *predictor,
-    std::shared_ptr<std::vector<paddle::PaddleTensor>> inputs,
-    std::vector<paddle::PaddleTensor> *output,
-    int num_threads) {
-  int batch_size = FLAGS_batch_size;
-  LOG(INFO) << "Warmup run...";
-  Timer warmup_timer;
-  warmup_timer.tic();
-  predictor->Run(*inputs, output, batch_size);
-  PrintTime(batch_size, num_threads, warmup_timer.toc(), 1);
-#ifdef WITH_GPERFTOOLS
-  if (FLAGS_use_profile) {
-    paddle::platform::ResetProfiler();
-  }
-#endif
-}
-
 void PredictionRun(paddle::PaddlePredictor *predictor,
                    const std::vector<std::vector<paddle::PaddleTensor>> &inputs,
                    std::vector<std::vector<paddle::PaddleTensor>> *outputs,
@@ -269,6 +202,7 @@ void PredictionRun(paddle::PaddlePredictor *predictor,
   Timer run_timer;
   double elapsed_time = 0;
 #ifdef WITH_GPERFTOOLS
+  ResetProfiler();
   ProfilerStart("paddle_inference.prof");
 #endif
   int predicted_num = 0;
@@ -370,15 +304,8 @@ int main(int argc, char *argv[]) {
   SetInput(&input_slots_all, &labels_gt);       // iterations*batch_size
   auto predictor = CreatePredictor(
       reinterpret_cast<paddle::PaddlePredictor::Config *>(&cfg), true);
-  if (FLAGS_warmup_size) {
-    std::shared_ptr<std::vector<paddle::PaddleTensor>> warmup_data =
-        GetWarmupData(input_slots_all);
-    std::vector<paddle::PaddleTensor> output;
-    PredictionWarmUp(predictor.get(), warmup_data, &output, FLAGS_num_threads);
-  }
   PredictionRun(predictor.get(), input_slots_all, &outputs, FLAGS_num_threads);
   auto acc_pair = CalculateAccuracy(outputs, labels_gt);
-  LOG(INFO) <<"Model:  "<<FLAGS_infer_model;
   LOG(INFO) <<"Top1 acc " << std::fixed << std::setw(6)
             <<std::setprecision(4) << acc_pair.first;
   LOG(INFO) <<"Top5 acc " << std::fixed << std::setw(6)

@@ -59,11 +59,11 @@ import numpy as np
 python train_image_classification.py --model=ResNet50 --pretrained_model=$PATH_TO_ResNet50_pretrained --data=imagenet --data_dir=$PATH_TO_ILSVRC2012/ --save_float32_qat_dir=$PATH_TO_float32_qat_dir
 ```
 参数说明如下。
-- **pretrained_model:** 传入预训练好的模型
-- **max_iters:** 训练的总轮次。如果使用预训练模型，量化模型需要的训练轮次比正常训练小很多。
-- **LeaningRate.base_lr:** 根据总`batch_size`调整`base_lr`，两者大小正相关，可以简单的按比例进行调整。
-- **LearningRate.schedulers.PiecewiseDecay.milestones：** 请根据batch size的变化对其调整。
-- **num_epochs:** 多训练几个epoch，精度理论上会更高。
+- **model：** 模型名称，默认值`ResNet50`
+- **pretrained_model:** 加载预训练模型路径，默认值为空
+- **batch_size：** 训练batch大小，默认值128
+- **num_epochs:** 训练回合数，默认值: 1
+- **config_file:** 配置文件位置，默认值`./config.yaml`
 
 在Program中插入量化和反量化OP阶段，如果用户需要更改量化策略，可以更改 `config.yaml` 配置。我们目前建议使用以下配置可以获得最佳精度。
 
@@ -85,21 +85,21 @@ config = {
     build_strategy.sync_batch_norm = False
     ```
 
-- 在``train_image_classification.py``中，``paddleslim.quant.convert`` 主要用于改变Program中量化op和反量化op的顺序。除此之外，``paddleslim.quant.convert`` 还会将`conv2d`、`depthwise_conv2d`、`mul`等算子参数变为量化后的`int8_t`范围内的值，但数据类型仍为`float32`。这就是我们需要的qat float32模型，位置默认为``./quantization_models/act_*/float``。
+- 在``train_image_classification.py``中，``paddleslim.quant.convert`` 主要用于改变Program中量化op和反量化op的顺序。除此之外，``paddleslim.quant.convert`` 还会将`conv2d`、`depthwise_conv2d`、`mul`等算子参数变为量化后的`int8_t`范围内的值，但数据类型仍为`float32`。这就是我们需要的qat float32模型，位置默认为``./quantization_models/``。
 
 ## 3. 转化fp32 qat模型为MKL-DNN优化后的INT8模型
-上一步中训练后保存的模型是float32 qat模型。我们还需要移除量化，反量化op，fuse一些op，并且完全转化成 INT8 模型。运行下面的脚本
+上一步中训练后保存的模型是float32 qat模型。我们还需要移除量化，反量化op，fuse一些op，并且完全转化成 INT8 模型。在Paddle所在目录运行下面的脚本
 
 ```
-python ./save_qat_model.py --qat_model_path=$PATH_TO_float32_qat_dir --int8_model_save_path=$PATH_TO_SAVE_INT8_MODEL --quantized_ops="conv2d,pool2d"
+python Paddle/python/paddle/fluid/contrib/slim/tests/save_qat_model.py --qat_model_path=$PATH_TO_float32_qat_dir --int8_model_save_path=$PATH_TO_SAVE_INT8_MODEL --quantized_ops="conv2d,pool2d"
 ```
 
 ## 4. 预测
 
 ### 4.1 数据预处理转化
-在精度和性能预测中，需要先对数据进行二进制转化。运行脚本如下可转化完整ILSVRC2012 val数据集。使用可选参数转化用户自己的数据。
+在精度和性能预测中，需要先对数据进行二进制转化。运行脚本如下可转化完整ILSVRC2012 val数据集。使用`--local`可以转化用户自己的数据。在Paddle所在目录运行下面的脚本
 ```
-python ../tools/full_ILSVRC2012_val_preprocess.py --local --data_dir=$USER_DATASET_PATH --output_file=data.bin
+python Paddle/paddle/fluid/inference/tests/api/full_ILSVRC2012_val_preprocess.py --local --data_dir=$USER_DATASET_PATH --output_file=$PATH_TO_BINARY_DATA
 ```
 
 可选参数：
@@ -156,7 +156,6 @@ echo 1 | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo
 运行时需要配置以下参数：
 - **infer_model:** 模型所在目录，注意模型参数当前必须是分开保存成多个文件的。无默认值。
 - **infer_data:** 测试数据文件所在路径。注意需要是经`full_ILSVRC2012_val_preprocess`转化后的binary文件。
-- **warmup_size:** warmup的步数。默认值为0，即没有warmup。
 - **batch_size:** 预测batch size大小。默认值为50。
 - **iterations:** 预测多少batches。默认为0，表示预测infer_data中所有batches (image numbers/batch size)
 - **num_threads:** 预测使用CPU 线程数，默认为单核一个线程。

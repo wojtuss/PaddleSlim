@@ -51,20 +51,19 @@ import numpy as np
 ```
 
 ## 2. Training and converting fp32 model to fp32 qat model
-First, users can download our pre-trained models at [Download pre-trained models](https://github.com/PaddlePaddle/models/blob/develop/PaddleCV/image_classification/README.md)
+Users can download pre-trained models at [Download pre-trained models](https://github.com/PaddlePaddle/models/blob/develop/PaddleCV/image_classification/README.md)
 
-We provide a script that inserts quantized and dequantized ops for training, and saves the float32 QAT model as follows:
+We provide a script to insert fake_quant_ops and fake_dequant_ops, train a few iterations and then save the float32 QAT model. Run as follows
 ```
-python train_image_classification.py --model = ResNet50 --pretrained_model = $ PATH_TO_ResNet50_pretrained --data = imagenet --data_dir = $ PATH_TO_ILSVRC2012 / --save_float32_qat_dir = $ PATH_TO_float32_qat_dir
+python train_image_classification.py --model=ResNet50 --pretrained_model=$PATH_TO_ResNet50_pretrained --data=imagenet --data_dir=$PATH_TO_ILSVRC2012/ --save_float32_qat_dir=$PATH_TO_float32_qat_dir
 ```
-The parameter description is as follows.
-- **pretrained_model:** Incoming pre-trained model
-- **max_iters:** Total training rounds. If a pre-trained model is used, the training round required for the quantized model is much smaller than normal training.
-- **LeaningRate.base_lr:** Adjust `base_lr` according to the total` batch_size`, the size of the two is positively related, and can be adjusted in proportion simply.
-- **LearningRate.schedulers.PiecewiseDecay.milestones: ** Please adjust it according to the change of batch size.
-- **num_epochs:** Train more epochs, the accuracy will be higher theoretically
-
-Insert the quantization and dequantization OP stages in the Program. If the user needs to change the quantization strategy, he can change the `config.yaml` configuration. We currently recommend the following configuration to obtain the best accuracy.
+Parameters description:
+- **model:** models name. Default value: "ResNet50"
+- **pretrained_model:** pre-trained model location. Default value: None
+- **batch_size：** training batch size, default value is 128
+- **num_epochs:** training epoches, default value is 1
+- **config_file:** training config file location, default value is `./config.yaml`
+If the user needs to change the quantization strategy, modify `config.yaml`. We sugggest the following configuration to obtain the best accuracy.
 
 ```
 config = {
@@ -73,38 +72,38 @@ config = {
          'quantize_op_types': ['depthwise_conv2d', 'mul', 'conv2d', 'elmentwise_add', 'pool2d']
      }
 ```
-If you want to understand the meaning of each parameter, please refer to [PaddleSlim quant_aware API](https://paddlepaddle.github.io/PaddleSlim/api/quantization_api/#quant_aware)
+For better understanding of the strategies, please refer to [PaddleSlim quant_aware API](https://paddlepaddle.github.io/PaddleSlim/api/quantization_api/#quant_aware)
 
 **Note:**
-- Because the quantification needs to modify the Program, some training strategies that will modify the Program need to be closed. `` sync_batch_norm '' and quantized Doka training will be wrong when used at the same time, the reason is unknown, please make sure to close it in the code. (Closed in the sample code)
+- To modify the program for quantizaiton, some training options need to be closed. Running `` sync_batch_norm '' and quant-training with multicards will cause error, the reason is unknown, for now please make sure to close it as below.
 ```
 build_strategy.fuse_all_reduce_ops = False
 build_strategy.sync_batch_norm = False
 ```
-- In `train_image_classification.py`, `paddleslim.quant.convert` is mainly used to change the order of quantization op and inverse quantization op in Program. In addition, `paddleslim.quant.convert ` will also change the operator parameters such as `conv2d`,` depthwise_conv2d`, and `mul` to the values within the range of quantized `int8_t`, but the data type is still `float32`. This is the qat float32 model we need, the default position is `./quantization_models/act_*/float `.
+- In `train_image_classification.py`, `paddleslim.quant.convert` is used to change the order of fake_quant_op and fake_dequant_op in Program. In addition, `paddleslim.quant.convert ` will also change the operator parameters such as `conv2d`,` depthwise_conv2d`, and `mul` to the values within the range of quantized `int8_t`, but the data type is still `float32`. This is the qat float32 model we need, the default saving location is `./quantization_models/`.
 
 ## 3. Convert fp32 qat model to MKL-DNN INT8 model
-The model saved after training in the previous step is the float32 qat model. We also need to remove the quantization, inverse quantization op, fuse some ops, and fully converted into INT8 model. Run the following script
+The model saved after training in the previous step is the float32 qat model. We have to remove the fake_quant_ops and fake_dequant_ops, and fully convert it into INT8 model. Go to the Paddle directory and run
 
 ```
-python ./save_qat_model.py --qat_model_path=$PATH_TO_float32_qat_dir --int8_model_save_path=$PATH_TO_SAVE_INT8_MODEL --quantized_ops="conv2d,pool2d"
+python python/paddle/fluid/contrib/slim/tests/save_qat_model.py --qat_model_path=$PATH_TO_float32_qat_dir --int8_model_save_path=$PATH_TO_SAVE_INT8_MODEL --quantized_ops="conv2d,pool2d"
 ```
 
 ## 4. Inference test
 
 ### 4.1 Data preprocessing
-To run the inference test, the data needs to be converted to binary first. Run the script without any pramaters to transform the complete ILSVRC2012 val data set to bianary file. Use `local` parameter to transform your own data.
+To run the inference test, the data needs to be converted to binary first. Run the following script without any pramaters allows you to transform the complete ILSVRC2012_val_data set to bianary file. Use `local` parameter to transform your own data. Go to Paddle directory and run:
 ```
-python ../tools/full_ILSVRC2012_val_preprocess.py --local --data_dir=$USER_DATASET_PATH --output_file=data.bin  
+python paddle/fluid/inference/tests/api/full_ILSVRC2012_val_preprocess.py --local --data_dir=$USER_DATASET_PATH --output_file=$PATH_TO_BINARY_DATA
 ```
 
 Optional parameters:
-- No parameters set. The script will download the ILSVRC2012_img_val data set and convert it into a binary file.
-- local, set to true, indicating that users will provide their own data
-- data_dir, set the user's own data directory
+- No parameters set. The script will download the ILSVRC2012_img_val data from server and convert it into a binary file.
+- local, once set, the script will process user data
+- data_dir, set the user data directory, default value
 - label_list, set the image path-image category list, similar to `val_list.txt`
 - output_file, the name of the generated bin file
-- data_dim, the length and width of the preprocessed image, the default is 224. Not recommended to change
+- data_dim, the length and width of the preprocessed image, the default is 224.
 
 The user's own data set directory structure should be as follows
 ```
@@ -149,9 +148,8 @@ echo 1 | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo
 ```
 
 The following parameters need to be configured during operation:
-- infer_model, the directory where the model is located, note that the model parameters must currently be saved separately into multiple files. There is no default value.
+- infer_model, the directory where the model is located, note that the model parameters must currently be saved separately into multiple files. Default value None.
 - infer_data, the path where the test data file is located. Note that it must be a binary file converted by `full_ILSVRC2012_val_preprocess`.
-- warmup_size, the number of warmup steps. The default value is 0, which means no warmup.
 - batch_size, predict batch size. The default value is 50.
 - iterations, predict how many batches. The default is 0, which means predict all batches (image numbers / batch size) in infer_data
 - num_threads, the number of CPU threads to be used. The default is one thread.
@@ -191,7 +189,6 @@ This section contain QAT2 MKL-DNN accuracy and performance benchmark results mea
 #### 5.2 Performance
 
 Image classification models performance was measured using a single thread. The setting is included in the benchmark reproduction commands below.
-
 
 >**Intel(R) Xeon(R) Gold 6271**
 
