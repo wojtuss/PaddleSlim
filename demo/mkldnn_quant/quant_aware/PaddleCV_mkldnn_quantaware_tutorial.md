@@ -2,13 +2,13 @@
 
 ## Overview
 
-Quantization is an important method for model compression and inference performance improvement. PaddlePaddle supports two quantization strategies: `post` and `aware`. In the `post` strategy a trained model is quantized. In the `aware` strategy a model is trained for quantization and then quantized. This tutorial presents the use of the `aware` training quantization strategy to quantize an image classification model and accelerate it through DNNL optimizations. On Intel (R) Cascade Lake class CPU machines, 8-bits quantization, graph optimizations and DNNL acceleration yields performance of a quantized model up to 4 times better than of an original FP32 model. Currently, quantizable operators include `conv2d`, `depthwise_conv2d`, `mul`, `matmul`; Meanwhile, in the DNNL optimization stage, we will fuse many other ops, including `batch_norm`, `relu`, `brelu`, `elementwise_add`, etc. After quantization and fuses, INT8 models performance will be greatly improved. For details about MKL-DNN optimization users can refer to [SLIM QAT for INT8 MKL-DNN](https://github.com/PaddlePaddle/Paddle/blob/develop/python/paddle/fluid/contrib/slim/tests/QAT_mkldnn_int8_readme.md)
+Quantization is an important method for model compression and inference performance improvement. PaddlePaddle supports two quantization strategies: `post` and `aware`. In the `post` strategy a trained model is quantized. In the `aware` strategy a model is trained for quantization and then quantized. This tutorial presents the use of the `aware` training quantization strategy to quantize an image classification model and accelerate it through DNNL optimizations. On Intel (R) Cascade Lake class CPU machines, 8-bits quantization, graph optimizations and DNNL acceleration yields performance of a quantized model up to 4 times better than of an original FP32 model. Currently, quantizable operators include `conv2d`, `depthwise_conv2d`, `mul`, `matmul`. DNNL optimizations consist mainly of operator fusing passes which simplify the model graph greatly, further improving the performance, including `batch_norm`, `relu`, `brelu`, `elementwise_add`, etc. After quantization and fuses, INT8 models performance will be greatly improved. For details about DNNL optimization users can refer to [SLIM QAT for DNNL INT8](https://github.com/PaddlePaddle/Paddle/blob/develop/python/paddle/fluid/contrib/slim/tests/QAT_mkldnn_int8_readme.md)
 
 **Note**:
 
 - PaddlePaddle in version 1.7.1 or higher is required.
 
-- MKL-DNN and MKL are required. The highest performance gain can be observed using CPU servers supporting AVX512 instructions.
+- DNNL and MKL are required. The highest performance gain can be observed using CPU servers supporting AVX512 instructions.
 
 - INT8 accuracy is best on CPU servers supporting AVX512 VNNI extension (e.g. CLX class Intel processors). A linux server supports AVX512 VNNI instructions if the output of the command lscpu contains the avx512_vnni entry in the Flags section. AVX512 VNNI support on Windows can be checked using the coreinfo tool.
 
@@ -82,7 +82,7 @@ build_strategy.sync_batch_norm = False
 ```
 - In `train_image_classification.py`, `paddleslim.quant.convert` is used to change the order of `fake_quantize`/`fake_dequantize` ops in Program. In addition, `paddleslim.quant.convert ` will also change the operator parameters such as `conv2d`,` depthwise_conv2d`, and `mul` to the values within the range of quantized `int8_t`, but the data type is still `float32`. This is the qat float32 model we need, the default saving location is `./quantization_models/`.
 
-## 3. Convert fp32 qat model to MKL-DNN INT8 model
+## 3. Convert fp32 qat model to DNNL INT8 model
 The model saved after training in the previous step is the float32 qat model. We have to remove the `fake_quantize`/`fake_dequantize` ops, and fully convert it into INT8 model. Go to the Paddle directory and run
 
 ```
@@ -158,7 +158,7 @@ Available options in script `run.sh` and their descriptions are as follows:
 
 ## 5. Accuracy and Performance benchmark
 
-This section contain QAT2 MKL-DNN accuracy and performance benchmark results measured on two server
+This section contain QAT2 DNNL accuracy and performance benchmark results measured on two server
 * Intel(R) Xeon(R) Gold 6271 (with AVX512 VNNI support),
 * Intel(R) Xeon(R) Gold 6148.
 
@@ -214,4 +214,4 @@ Image classification models performance was measured using a single thread. The 
 
 Notes:
 
-* Performance FP32 (images/s) values come from [INT8 MKL-DNN post-training quantization](https://github.com/PaddlePaddle/Paddle/blob/develop/paddle/fluid/inference/tests/api/int8_mkldnn_quantization.md) document.
+* Performance FP32 (images/s) values come from [INT8 DNNL post-training quantization](https://github.com/PaddlePaddle/Paddle/blob/develop/paddle/fluid/inference/tests/api/int8_mkldnn_quantization.md) document.
