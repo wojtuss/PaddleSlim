@@ -53,16 +53,16 @@ import numpy as np
 ## 2. Training and converting fp32 model to fp32 qat model
 Users can download pre-trained models at [Download pre-trained models](https://github.com/PaddlePaddle/models/blob/develop/PaddleCV/image_classification/README.md)
 
-We provide a script to insert fake_quant_ops and fake_dequant_ops, train a few iterations and then save the float32 QAT model. Run as follows
+We provide a script to insert `fake_quantize`/`fake_dequantize` ops, train a few iterations and then save the float32 QAT model. Run as follows
 ```
 python train_image_classification.py --model=ResNet50 --pretrained_model=$PATH_TO_ResNet50_pretrained --data=imagenet --data_dir=$PATH_TO_ILSVRC2012/ --save_float32_qat_dir=$PATH_TO_float32_qat_dir
 ```
-Parameters description:
-- **model:** models name. Default value: "ResNet50"
-- **pretrained_model:** pre-trained model location. Default value: None
-- **batch_size：** training batch size, default value is 128
-- **num_epochs:** training epoches, default value is 1
-- **config_file:** training config file location, default value is `./config.yaml`
+Available options in the above command and their descriptions are as follows:
+- **model:** Model name. Default value: "ResNet50"
+- **pretrained_model:** A path to pre-trained model. Default value: None
+- **batch_size：** Number of training batch size. Default value is 128
+- **num_epochs:** Number of training epoches. Default value is 1
+- **config_file:** A path to training config file. Default value is `./config.yaml`
 If the user needs to change the quantization strategy, modify `config.yaml`. We sugggest the following configuration to obtain the best accuracy.
 
 ```
@@ -80,10 +80,10 @@ For better understanding of the strategies, please refer to [PaddleSlim quant_aw
 build_strategy.fuse_all_reduce_ops = False
 build_strategy.sync_batch_norm = False
 ```
-- In `train_image_classification.py`, `paddleslim.quant.convert` is used to change the order of fake_quant_op and fake_dequant_op in Program. In addition, `paddleslim.quant.convert ` will also change the operator parameters such as `conv2d`,` depthwise_conv2d`, and `mul` to the values within the range of quantized `int8_t`, but the data type is still `float32`. This is the qat float32 model we need, the default saving location is `./quantization_models/`.
+- In `train_image_classification.py`, `paddleslim.quant.convert` is used to change the order of `fake_quantize`/`fake_dequantize` ops in Program. In addition, `paddleslim.quant.convert ` will also change the operator parameters such as `conv2d`,` depthwise_conv2d`, and `mul` to the values within the range of quantized `int8_t`, but the data type is still `float32`. This is the qat float32 model we need, the default saving location is `./quantization_models/`.
 
 ## 3. Convert fp32 qat model to MKL-DNN INT8 model
-The model saved after training in the previous step is the float32 qat model. We have to remove the fake_quant_ops and fake_dequant_ops, and fully convert it into INT8 model. Go to the Paddle directory and run
+The model saved after training in the previous step is the float32 qat model. We have to remove the `fake_quantize`/`fake_dequantize` ops, and fully convert it into INT8 model. Go to the Paddle directory and run
 
 ```
 python python/paddle/fluid/contrib/slim/tests/save_qat_model.py --qat_model_path=$PATH_TO_float32_qat_dir --int8_model_save_path=$PATH_TO_SAVE_INT8_MODEL --quantized_ops="conv2d,pool2d"
@@ -97,7 +97,7 @@ To run the inference test, the data needs to be converted to binary first. Run t
 python paddle/fluid/inference/tests/api/full_ILSVRC2012_val_preprocess.py --local --data_dir=$USER_DATASET_PATH --output_file=$PATH_TO_BINARY_DATA
 ```
 
-Optional parameters:
+Available options in the above command and their descriptions are as follows:
 - No parameters set. The script will download the ILSVRC2012_img_val data from server and convert it into a binary file.
 - local, once set, the script will process user data
 - data_dir, set the user data directory, default value
@@ -105,7 +105,7 @@ Optional parameters:
 - output_file, the name of the generated bin file
 - data_dim, the length and width of the preprocessed image, the default is 224.
 
-The user's own data set directory structure should be as follows
+The user's own data set directory structure should be as follows:
 ```
 imagenet_user
 ├── val
@@ -116,12 +116,12 @@ imagenet_user
 ```
 Among them, the content of val_list.txt should be as follows:
 ```
-val / ILSVRC2012_val_00000001.jpg 0
-val / ILSVRC2012_val_00000002.jpg 0
+val/ILSVRC2012_val_00000001.jpg 0
+val/ILSVRC2012_val_00000002.jpg 0
 ```
 
 note:
-- Why convert the data set into a binary file? Because the data preprocessing (resize, crop, etc.) in Paddle is performed using pythong.Image module, the trained model is also based on the images preprocessed by Python. However, we found python test has high performance overhead and the inference performance slow down. Hence, in the quantitative model inference stage, we decided to use C++ tests. While C ++ only supports libraries such as Open-CV, paddle does not recommend the use of external libraries, so we use Python to preprocess the images and put data into a binary file. Then read it into C++ test. Users can also change the C++ test to use open-cv library to directly read the data and preprocess it, and the accuracy will not be greatly reduced. We also provide a python test `sample_tester.py` as a reference, users can see its high performance overhead compared to C++ test `sample_tester.cc`.
+- The reason for converting the dataset into a binary file is performance and independence of external C++ libraries. Image data requires preprocessing like resizing, cropping, etc. and it can be easily achieved using python Image module, both for training and inference. However, the performance of python tests is lower than of C++ tests, hence the decision to latter for the quantitative model inference tests are made. While effective image processing in C++ requires linking to external libraries like Open-CV, to avoid adding new dependencies to Paddle we use Python to preprocess the image data and put the result in a binary file. Then, the binary dataset is read into the C++ test. A python test sample_tester.py is there for reference, so users can observe its performance overhead compared to the C++ test sample_tester.cc.
 
 ### 4.2 Compile and run inference
 ####  Build the application
@@ -139,15 +139,15 @@ export KMP_AFFINITY=granularity=fine,compact,1,0
 export KMP_BLOCKTIME=1
 # Turbo Boost was set to OFF using the command
 echo 1 | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo
-# In the file run.sh, set `MODEL_DIR` to `PATH_INT8_OR_FLOAT32_MODEL`
-# In the file run.sh, set `DATA_FILE` to `PATH_TO_BINARY_DATA`
+# In the file run.sh, set `MODEL_DIR` to `path/to/int8/or/fp32/model`, it can be `$PATH_TO_float32_qat_dir` or `$PATH_TO_SAVE_INT8_MODEL`
+# In the file run.sh, set `DATA_FILE` to `$PATH_TO_BINARY_DATA`
 # For 1 thread performance:
 ./run.sh
 # For 20 thread performance:
 ./run.sh -1 20
 ```
 
-The following parameters need to be configured during operation:
+Available options in script `run.sh` and their descriptions are as follows:
 - infer_model, the directory where the model is located, note that the model parameters must currently be saved separately into multiple files. Default value None.
 - infer_data, the path where the test data file is located. Note that it must be a binary file converted by `full_ILSVRC2012_val_preprocess`.
 - batch_size, predict batch size. The default value is 50.
