@@ -38,8 +38,7 @@ cmake -DFLUID_INFERENCE_INSTALL_DIR=$PADDLE_ROOT \
 ### 1.2 Build PaddleSlim from source code
 ```
 git clone https://github.com/PaddlePaddle/PaddleSlim.git
-cd PaddleSlim
-python setup.py install
+cd PaddleSlim/demo/mkldnn_quant/quant_aware/
 ```
 ### 1.3 Use paddle and slim in sample code
 You can use paddle and paddleslim as follows:
@@ -55,14 +54,18 @@ Users can download pre-trained models at [Download pre-trained models](https://g
 
 We provide a script to insert `fake_quantize`/`fake_dequantize` ops, train a few iterations and then save the float32 QAT model. Run as follows
 ```
-python train_image_classification.py --model=ResNet50 --pretrained_model=$PATH_TO_ResNet50_pretrained --data=imagenet --data_dir=$PATH_TO_ILSVRC2012/ --save_float32_qat_dir=$PATH_TO_float32_qat_dir
+cd PaddleSlim/demo/mkldnn_quant/quant_aware/
+python train_image_classification.py --model=ResNet50 --pretrained_model=path/to/ResNet50/pretrained --data=imagenet --data_dir=path/to/imagenet/dataset --batch_size=32 --num_epochs=1 --save_float32_qat_dir=path/to/float32/qat/dir
 ```
 Available options in the above command and their descriptions are as follows:
 - **model:** Model name. Default value: "ResNet50"
-- **pretrained_model:** A path to pre-trained model. Default value: None
-- **batch_size：** Number of training batch size. Default value is 128
-- **num_epochs:** Number of training epoches. Default value is 1
-- **config_file:** A path to training config file. Default value is `./config.yaml`
+- **pretrained_model:** Path to pre-trained model. Default value: None
+- **data:** Dataset. Default value: imagenet
+- **data_dir:** Path to the dataset. Default value: None
+- **batch_size：** Number of training batch size. Default value: 128
+- **num_epochs:** Number of training epoches. Default value: 1
+- **save_float32_qat_dir:** Path to saved qat_float32 model. Default value: `./quantization_models/`
+- **config_file:** Path to training config file. Default value is `./config.yaml`
 If the user needs to change the quantization strategy, modify `config.yaml`. We sugggest the following configuration to obtain the best accuracy.
 
 ```
@@ -86,7 +89,7 @@ build_strategy.sync_batch_norm = False
 The model saved after training in the previous step is the float32 qat model. We have to remove the `fake_quantize`/`fake_dequantize` ops, and fully convert it into INT8 model. Go to the Paddle directory and run
 
 ```
-python python/paddle/fluid/contrib/slim/tests/save_qat_model.py --qat_model_path=$PATH_TO_float32_qat_dir --int8_model_save_path=$PATH_TO_SAVE_INT8_MODEL --quantized_ops="conv2d,pool2d"
+python python/paddle/fluid/contrib/slim/tests/save_qat_model.py --qat_model_path=path/to/float32/qat/dir --int8_model_save_path=path/to/int8/model/dir --quantized_ops="conv2d,pool2d"
 ```
 
 ## 4. Inference test
@@ -94,7 +97,7 @@ python python/paddle/fluid/contrib/slim/tests/save_qat_model.py --qat_model_path
 ### 4.1 Data preprocessing
 To run the inference test, the data needs to be converted to binary first. Run the following script without any pramaters allows you to transform the complete ILSVRC2012_val_data set to bianary file. Use `local` parameter to transform your own data. Go to Paddle directory and run:
 ```
-python paddle/fluid/inference/tests/api/full_ILSVRC2012_val_preprocess.py --local --data_dir=$USER_DATASET_PATH --output_file=$PATH_TO_BINARY_DATA
+python paddle/fluid/inference/tests/api/full_ILSVRC2012_val_preprocess.py --local --data_dir=path/to/user/dataset --output_file=path/to/binary/data
 ```
 
 Available options in the above command and their descriptions are as follows:
@@ -139,8 +142,8 @@ export KMP_AFFINITY=granularity=fine,compact,1,0
 export KMP_BLOCKTIME=1
 # Turbo Boost was set to OFF using the command
 echo 1 | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo
-# In the file run.sh, set `MODEL_DIR` to `path/to/int8/or/fp32/model`, it can be `$PATH_TO_float32_qat_dir` or `$PATH_TO_SAVE_INT8_MODEL`
-# In the file run.sh, set `DATA_FILE` to `$PATH_TO_BINARY_DATA`
+# In the file run.sh, set `MODEL_DIR` to `path/to/int8/or/fp32/model`, it can be `path/to/float32/qat/dir` or `path/to/int8/model/dir`
+# In the file run.sh, set `DATA_FILE` to `path/to/binary/data`
 # For 1 thread performance:
 ./run.sh
 # For 20 thread performance:
