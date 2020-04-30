@@ -83,13 +83,7 @@ def compress(args):
     # weight quantize type, default is 'channel_wise_abs_max'
     train_reader = None
     test_reader = None
-    if args.data == "mnist":
-        import paddle.dataset.mnist as reader
-        train_reader = reader.train()
-        val_reader = reader.test()
-        class_dim = 10
-        image_shape = "1,28,28"
-    elif args.data == "imagenet":
+    if args.data == "imagenet":
         import imagenet_reader as reader
         train_reader = reader.train(data_dir=args.data_dir)
         val_reader = reader.val(data_dir=args.data_dir)

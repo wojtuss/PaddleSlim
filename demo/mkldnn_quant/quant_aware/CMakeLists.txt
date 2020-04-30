@@ -10,6 +10,9 @@ option(USE_PROFILER "Whether enable Paddle's profiler." OFF)
 set(USE_SHARED OFF)
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+if(NOT PADDLE_ROOT)
+  set(PADDLE_ROOT ${DEMO_SOURCE_DIR}/fluid_inference)
+endif()
 find_package(Fluid)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3")
