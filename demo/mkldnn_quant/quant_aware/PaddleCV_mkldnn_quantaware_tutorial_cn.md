@@ -48,7 +48,7 @@ import numpy as np
 ```
 python train_image_classification.py --model=ResNet50 --pretrained_model=$PATH_TO_ResNet50_pretrained --data=imagenet --data_dir=/PATH/TO/ILSVRC2012/ --save_float32_qat_dir=/PATH/TO/SAVE/FLOAT32/QAT/MODEL
 ```
-参数说明如下。
+**训练阶段参数说明：**
 - **model：** 模型名称，默认值`ResNet50`
 - **pretrained_model:** 加载预训练模型路径，默认值为空
 - **batch_size：** 训练batch大小，默认值128
@@ -63,7 +63,7 @@ config = {
         'quantize_op_types': ['depthwise_conv2d', 'mul', 'conv2d','matmul']
     }
 ```
-`config.yaml` 参数说明：
+**`config.yaml` 参数说明：**
 - **quantize_op_types:** 目前支持 `depthwise_conv2d`, `mul`, `conv2d`, `matmul`, `transpose2`, `reshape2`, `pool2d`, `scale`的量化。但是训练阶段插入fake quantize/dequantize op时，只需在前四种op前后插入fake quantize/dequantize ops，后面四种op `matmul`, `transpose2`, `reshape2`, `pool2d`, 由于输入输出scale不变，将从前后方op的输入输出scales获得scales,所以`quantize_op_types` 参数只需要 `depthwise_conv2d`, `mul`, `conv2d`, `matmul` 即可
 - **其他参数:** 请参考 [PaddleSlim quant_aware API](https://paddlepaddle.github.io/PaddleSlim/api/quantization_api/#quant_aware)
 
@@ -97,16 +97,16 @@ python Paddle/python/paddle/fluid/contrib/slim/tests/save_qat_model.py --qat_mod
 ### 4.1 数据预处理转化
 在精度和性能预测中，需要先对数据进行二进制转化。运行脚本如下可转化完整ILSVRC2012 val数据集。使用`--local`可以转化用户自己的数据。在Paddle所在目录运行下面的脚本。脚本在官网位置为[full_ILSVRC2012_val_preprocess.py](https://github.com/PaddlePaddle/Paddle/blob/develop/paddle/fluid/inference/tests/api/full_ILSVRC2012_val_preprocess.py)
 ```
-python Paddle/paddle/fluid/inference/tests/api/full_ILSVRC2012_val_preprocess.py --local --data_dir=/PATH/TO/ILSVRC2012/  --output_file=/PATH/TO/SAVE/BINARY/FILE
+python Paddle/paddle/fluid/inference/tests/api/full_ILSVRC2012_val_preprocess.py --local --data_dir=/PATH/TO/USER/DATASET/  --output_file=/PATH/TO/SAVE/BINARY/FILE
 ```
 
 可选参数：
 - 不设置任何参数。脚本将下载 ILSVRC2012_img_val数据集，并转化为二进制文件。
 - **local:** 设置便为true，表示用户将提供自己的数据
-- **data_dir:** 设置用户自己的数据目录
-- **label_list:** 设置图片路径-图片类别列表，类似于`val_list.txt`
-- **output_file:** 生成的bin文件名
-- **data_dim:** 预处理图片的长和宽，默认为224。不建议更改
+- **data_dir:** 用户自己的数据目录
+- **label_list:** 图片路径-图片类别列表文件，类似于`val_list.txt`
+- **output_file:** 生成的binary文件路径。默认值为空
+- **data_dim:** 预处理图片的长和宽。默认值 224。
 
 用户自己的数据集目录结构应该如下
 ```

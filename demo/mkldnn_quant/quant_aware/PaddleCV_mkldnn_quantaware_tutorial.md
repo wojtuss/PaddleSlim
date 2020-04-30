@@ -2,43 +2,37 @@
 
 ## Overview
 
-Quantization is an important method for model compression and inference performance improvement. PaddlePaddle supports two quantization strategies: `post` and `aware`. In the `post` strategy a trained model is quantized. In the `aware` strategy a model is trained for quantization and then quantized. This tutorial presents the use of the `aware` training quantization strategy to quantize an image classification model and accelerate it through DNNL optimizations. On Intel (R) Cascade Lake class CPU machines, 8-bits quantization, graph optimizations and DNNL acceleration yields performance of a quantized model up to 4 times better than of an original FP32 model. Currently, quantizable operators include `conv2d`, `depthwise_conv2d`, `mul`, `matmul`. DNNL optimizations consist mainly of operator fusing passes which simplify the model graph greatly, further improving the performance, including `batch_norm`, `relu`, `brelu`, `elementwise_add`, etc. After quantization and fuses, INT8 models performance will be greatly improved. For details about DNNL optimization users can refer to [SLIM QAT for DNNL INT8](https://github.com/PaddlePaddle/Paddle/blob/develop/python/paddle/fluid/contrib/slim/tests/QAT_mkldnn_int8_readme.md)
+Quantization is an important method for model compression and inference performance improvement. PaddleSlim supports two quantization strategies: `post` and `aware`. This tutorial present the way to deploy and inference both post-training models and quantization-aware traing models on CPUS. On Intel (R) Cascade Lake class CPU machines, 8-bits quantization, graph optimizations and DNNL acceleration yields performance of a quantized model up to 4 times better than of an original FP32 model. Currently, we support quantizable operators `conv2d`, `depthwise_conv2d`, `mul`, `matmul`, `transpose2`, `reshape2`, `pool2d`. DNNL optimizations consist mainly of operator fusing passes which simplify the model graph greatly, further improving the performance, including `batch_norm`, `relu`, `brelu`, `elementwise_add`, etc. After quantization and fuses, INT8 models performance will be greatly improved. For details about DNNL optimization users can refer to [SLIM QAT for DNNL INT8](https://github.com/PaddlePaddle/Paddle/blob/develop/python/paddle/fluid/contrib/slim/tests/QAT_mkldnn_int8_readme.md)
 
 **Note**:
 
 - PaddlePaddle in version 1.7.1 or higher is required.
-
 - DNNL and MKL are required. The highest performance gain can be observed using CPU servers supporting AVX512 instructions.
-
 - INT8 accuracy is best on CPU servers supporting AVX512 VNNI extension (e.g. CLX class Intel processors). A linux server supports AVX512 VNNI instructions if the output of the command lscpu contains the avx512_vnni entry in the Flags section. AVX512 VNNI support on Windows can be checked using the coreinfo tool.
 
-## 1. Build Paddle, PaddleSlim and Inference library from source code
-### 1.1 Build Paddle and Inference library
-```
-PADDLE_ROOT=/path/of/capi
-git clone https://github.com/PaddlePaddle/Paddle.git
-cd Paddle
-git checkout 2.0-beta -b 2.0-beta
-mkdir build
-cd build
-cmake -DFLUID_INFERENCE_INSTALL_DIR=$PADDLE_ROOT \
-      -DCMAKE_INSTALL_PREFIX=./tmp \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DWITH_PYTHON=ON \
-      -DWITH_MKL=ON \
-      -DWITH_MKLDNN=ON \
-      -DWITH_GPU=OFF  \
-      -DON_INFER=ON \
-      -DWITH_PROFILER=OFF \
-      ..
- make -j$(nproc)
- make inference_lib_dist
-```
+## 1. Deployment
 
-### 1.2 Build PaddleSlim from source code
+#### 1.1 Prepare Inference library
+
+Users can build Paddle Inference library from source or directly download from the official website.
+
+- Build Paddle Inference from source, please refer to [Build from source](https://www.paddlepaddle.org.cn/documentation/docs/zh/develop/advanced_guide/inference_deployment/inference/build_and_install_lib_cn.html#id12)
+
+| Option        | Value           | Description  |
+| ------------- |:-------------:|:-----:|
+| WITH_MKL      | ON | Turn on MKL because we use MKL in following test|
+| WITH_MKLDNN   | ON | Turn on MKLDNN because we use MKLDNN in following test|
+
+- Download from [fluid_inference](https://www.paddlepaddle.org.cn/documentation/docs/zh/develop/advanced_guide/inference_deployment/inference/build_and_install_lib_cn.html)。Please download`ubuntu14.04_cpu_avx_mkl` newest release or develop version
+
+You can rename your prepared library as `fluid_inference`, put it under the same folder of the test. During compling, the test will locate inference library at `./fluid_inference`. You can also set PADDLE_ROOT to your saved inference library when you compile the test.
+
+
+### 1.2 Prepare PaddleSlim
 ```
 git clone https://github.com/PaddlePaddle/PaddleSlim.git
-cd PaddleSlim/demo/mkldnn_quant/quant_aware/
+cd PaddleSlim
+python setup.py install
 ```
 ### 1.3 Use paddle and slim in sample code
 You can use paddle and paddleslim as follows:
@@ -50,12 +44,12 @@ import numpy as np
 ```
 
 ## 2. Training and converting fp32 model to fp32 qat model
-Users can download pre-trained models at [Download pre-trained models](https://github.com/PaddlePaddle/models/blob/develop/PaddleCV/image_classification/README.md)
+Users can download pretrained models at [Download pre-trained models](https://github.com/PaddlePaddle/models/blob/develop/PaddleCV/image_classification/README.md)
 
 We provide a script to insert `fake_quantize`/`fake_dequantize` ops, train a few iterations and then save the float32 QAT model. Run as follows
 ```
 cd PaddleSlim/demo/mkldnn_quant/quant_aware/
-python train_image_classification.py --model=ResNet50 --pretrained_model=path/to/ResNet50/pretrained --data=imagenet --data_dir=path/to/imagenet/dataset --batch_size=32 --num_epochs=1 --save_float32_qat_dir=path/to/float32/qat/dir
+python train_image_classification.py --model=ResNet50 --pretrained_model=path/to/ResNet50/pretrained --data=imagenet --data_dir=/PATH/TO/ILSVRC2012/  --batch_size=32 --num_epochs=1 --save_float32_qat_dir=/PATH/TO/FLOAT32/QAT/MODEL
 ```
 Available options in the above command and their descriptions are as follows:
 - **model:** Model name. Default value: "ResNet50"
@@ -66,47 +60,57 @@ Available options in the above command and their descriptions are as follows:
 - **num_epochs:** Number of training epoches. Default value: 1
 - **save_float32_qat_dir:** Path to saved qat_float32 model. Default value: `./quantization_models/`
 - **config_file:** Path to training config file. Default value is `./config.yaml`
-If the user needs to change the quantization strategy, modify `config.yaml`. We sugggest the following configuration to obtain the best accuracy.
 
+If the user needs to change the quantization strategy, modify `config.yaml`. We sugggest the following configuration to obtain the best accuracy.
 ```
 config = {
          'weight_quantize_type': 'channel_wise_abs_max',
          'activation_quantize_type': 'moving_average_abs_max',
-         'quantize_op_types': ['depthwise_conv2d', 'mul', 'conv2d', 'elmentwise_add', 'pool2d']
+         'quantize_op_types': ['depthwise_conv2d', 'mul', 'conv2d', 'matmul']
      }
 ```
-For better understanding of the strategies, please refer to [PaddleSlim quant_aware API](https://paddlepaddle.github.io/PaddleSlim/api/quantization_api/#quant_aware)
+**`config.yaml` parameters description：**
+- **quantize_op_types:** Now we support quantizable ops including `depthwise_conv2d`, `mul`, `conv2d`, `matmul`, `transpose2`, `reshape2`, `pool2d`. During the period of training with fake quantize/dequantize op, we only need to insert fake quantize/dequantize ops around 4 types of ops:`depthwise_conv2d`, `mul`, `conv2d`, `matmul`. That is because other quantizable ops `transpose2`, `reshape2`, `pool2d`, input scale and output scale are the same, and the scales could be achieved through `out_threshold` attribute of the op, there is no need to insert fake quantize/dequantize ops for these ops. Hereby, we set `'quantize_op_types': ['depthwise_conv2d', 'mul', 'conv2d', 'matmul']`
+- **Other parameters:** Please refer [PaddleSlim quant_aware API](https://paddlepaddle.github.io/PaddleSlim/api/quantization_api/#quant_aware)
 
 **Note:**
-- To modify the program for quantizaiton, some training options need to be closed. Running `` sync_batch_norm '' and quant-training with multicards will cause error, the reason is unknown, for now please make sure to close it as below.
+- To modify the program for quantizaiton, some training options need to disabled. Please disable some options as follows:
 ```
 build_strategy.fuse_all_reduce_ops = False
 build_strategy.sync_batch_norm = False
 ```
-- In `train_image_classification.py`, `paddleslim.quant.convert` is used to change the order of `fake_quantize`/`fake_dequantize` ops in Program. In addition, `paddleslim.quant.convert ` will also change the operator parameters such as `conv2d`,` depthwise_conv2d`, and `mul` to the values within the range of quantized `int8_t`, but the data type is still `float32`. This is the qat float32 model we need, the default saving location is `./quantization_models/`.
+- In `train_image_classification.py`, `paddleslim.quant.convert` is used to change the order of `fake_quantize`/`fake_dequantize` ops in Program. In addition, `paddleslim.quant.convert ` will change the operator parameters values to the values within the range of quantized `int8_t`, but the data type is still `float32`. This is the fp32 qat model we need, the default saving location is `./quantization_models/`.
 
-## 3. Convert fp32 qat model to DNNL INT8 model
+## 3. Convert fp32 qat model to INT8 model
 The model saved after training in the previous step is the float32 qat model. We have to remove the `fake_quantize`/`fake_dequantize` ops, and fully convert it into INT8 model. Go to the Paddle directory and run
 
 ```
-python python/paddle/fluid/contrib/slim/tests/save_qat_model.py --qat_model_path=path/to/float32/qat/dir --int8_model_save_path=path/to/int8/model/dir --quantized_ops="conv2d,pool2d"
+python Paddle/python/paddle/fluid/contrib/slim/tests/save_qat_model.py --qat_model_path=/PATH/TO/FLOAT32/QAT/MODEL --int8_model_save_path=/PATH/TO/SAVE/INT8/MODEL --fp32_model_save_path=/PATH/TO/SAVE/FLOAT32/MODEL --ops_to_quantize="conv2d,pool2d"
 ```
+**Available options in the above command：**
+- **qat_model_path:** The path where we save qat float32 model after training.
+- **fp32_model_save_path:** Optional. If set, meaning the path to the saved optimized fp32 model
+- **int8_model_save_path:** Optional. If set, meaning the path to the saved optimized and quantized INT8 model
+- **ops_to_quantize:**  A comma-separated list of operator types to quantize. If the option is not used, an attempt to quantize all quantizable operators will be made, and in that case only quantizable operators which have quantization scales provided in the QAT model will be quantized. When deciding which operators to put on the list, the following have to be considered:
+  - Only operators which support quantization will be taken into account.
+  - All the quantizable operators from the list, which are present in the model, must have quantization scales provided in the model. Otherwise, quantization of the operator will be skipped with a message saying which variable is missing a quantization scale.
+  - Sometimes it may be suboptimal to quantize all quantizable operators in the model (cf. Notes in the Gathering scales section above). To find the optimal configuration for this option, user can run benchmark a few times with different lists of quantized operators present in the model and compare the results. For Image Classification models mentioned above the list usually comprises of conv2d and pool2d operators.
 
 ## 4. Inference test
 
 ### 4.1 Data preprocessing
 To run the inference test, the data needs to be converted to binary first. Run the following script without any pramaters allows you to transform the complete ILSVRC2012_val_data set to bianary file. Use `local` parameter to transform your own data. Go to Paddle directory and run:
 ```
-python paddle/fluid/inference/tests/api/full_ILSVRC2012_val_preprocess.py --local --data_dir=path/to/user/dataset --output_file=path/to/binary/data
+python Paddle/paddle/fluid/inference/tests/api/full_ILSVRC2012_val_preprocess.py --local --data_dir=/PATH/TO/USER/DATASET/  --output_file=/PATH/TO/SAVE/BINARY/FILE
 ```
 
 Available options in the above command and their descriptions are as follows:
 - No parameters set. The script will download the ILSVRC2012_img_val data from server and convert it into a binary file.
-- local, once set, the script will process user data
-- data_dir, set the user data directory, default value
-- label_list, set the image path-image category list, similar to `val_list.txt`
-- output_file, the name of the generated bin file
-- data_dim, the length and width of the preprocessed image, the default is 224.
+- **local:** once set, the script will process user data
+- **data_dir:** Path to the user data directory.
+- **label_list:** set the image path-image category list, similar to `val_list.txt`
+- **output_file:** Path of the generated bin file
+- **data_dim:** The length and width of the preprocessed image。 Default is 224.
 
 The user's own data set directory structure should be as follows:
 ```
@@ -130,6 +134,7 @@ note:
 ####  Build the application
 Run following commnd under the test directory:
 ```
+cd PaddleSlim/demo/mkldnn_quant/quant_aware/
 mkdir build
 cd build
 cmake -DUSE_GPU=OFF -DPADDLE_ROOT=$PADDLE_ROOT -DUSE_PROFILER=OFF ..
@@ -142,8 +147,8 @@ export KMP_AFFINITY=granularity=fine,compact,1,0
 export KMP_BLOCKTIME=1
 # Turbo Boost was set to OFF using the command
 echo 1 | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo
-# In the file run.sh, set `MODEL_DIR` to `path/to/int8/or/fp32/model`, it can be `path/to/float32/qat/dir` or `path/to/int8/model/dir`
-# In the file run.sh, set `DATA_FILE` to `path/to/binary/data`
+# In the file run.sh, set `MODEL_DIR` to `/PATH/TO/SAVE/INT8/MODEL`, it can be `/PATH/TO/SAVE/FLOAT32/MODEL` or `/PATH/TO/FLOAT32/QAT/MODEL`
+# In the file run.sh, set `DATA_FILE` to `/PATH/TO/SAVE/BINARY/FILE`
 # For 1 thread performance:
 ./run.sh
 # For 20 thread performance:
@@ -151,13 +156,13 @@ echo 1 | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo
 ```
 
 Available options in script `run.sh` and their descriptions are as follows:
-- infer_model, the directory where the model is located, note that the model parameters must currently be saved separately into multiple files. Default value None.
-- infer_data, the path where the test data file is located. Note that it must be a binary file converted by `full_ILSVRC2012_val_preprocess`.
-- batch_size, predict batch size. The default value is 50.
-- iterations, predict how many batches. The default is 0, which means predict all batches (image numbers / batch size) in infer_data
-- num_threads, the number of CPU threads to be used. The default is one thread.
-- with_accuracy_layer. The test is a general test for Image Classification inference. The model may or may not contain the accuracy layer. Default value is false.
-- use_profile, provided by the Paddle inference library, set for performance analysis. The default value is false. If you want to set `use_profile` to `true`, users need to build Paddle with `-DWITH_PROFILER=ON` and build sample application with `-DUSE_PROFILER=ON` in advance.
+- **infer_model：** The path of the model. Note that the model parameters must be saved separately into multiple files. Default value None.
+- **infer_data：** The path of test data. Note that it must be a binary file converted by `full_ILSVRC2012_val_preprocess`.
+- **batch_size：** Inference batch size. Default value 50.
+- **iterations：** Inference iteration number. Default value is 0, which means predicting all batches (image numbers / batch size) in infer_data
+- **num_threads：** The number of CPU threads to be used. Default value 1.
+- **with_accuracy_layer：** The model is with accuracy layer or not. Default value is false.
+- **use_profile：** Do profiling or not. Default value is false. If you want to set `use_profile` to `true`, users need to build Paddle with `-DWITH_PROFILER=ON` and build test application with `-DUSE_PROFILER=ON` in advance.
 
 ## 5. Accuracy and Performance benchmark
 
@@ -214,7 +219,3 @@ Image classification models performance was measured using a single thread. The 
 |   ResNet50   |      12.42      |        19.74        |       1.59        |
 |    VGG16     |      3.31       |        4.74         |       1.43        |
 |    VGG19     |      2.68       |        3.91         |       1.46        |
-
-Notes:
-
-* Performance FP32 (images/s) values come from [INT8 DNNL post-training quantization](https://github.com/PaddlePaddle/Paddle/blob/develop/paddle/fluid/inference/tests/api/int8_mkldnn_quantization.md) document.
