@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 import paddle.fluid as fluid
-from ..models import classification_models
+#  from paddleslim.models import classification_models
+import models.classification_models as classification_models
 
 __all__ = ["image_classification"]
 
@@ -28,5 +29,6 @@ def image_classification(model, image_shape, class_num, use_gpu=False):
         place = fluid.CUDAPlace(0) if use_gpu else fluid.CPUPlace()
         exe = fluid.Executor(place)
         exe.run(fluid.default_startup_program())
-    return exe, train_program, val_program, (image, label), (
-        acc_top1.name, acc_top5.name, avg_cost.name)
+    return exe, train_program, val_program, (image, label), (acc_top1.name,
+                                                             acc_top5.name,
+                                                             avg_cost.name)

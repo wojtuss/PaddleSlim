@@ -74,7 +74,7 @@ _quant_config_default = {
     'moving_rate': 0.9,
     # if True, 'quantize_op_types' will be TENSORRT_OP_TYPES
     'for_tensorrt': False,
-    # if True, 'quantoze_op_types' will be TRANSFORM_PASS_OP_TYPES + QUANT_DEQUANT_PASS_OP_TYPES 
+    # if True, 'quantoze_op_types' will be TRANSFORM_PASS_OP_TYPES + QUANT_DEQUANT_PASS_OP_TYPES
     'is_full_quantize': False
 }
 
@@ -159,21 +159,21 @@ def _parse_configs(user_config):
 
 
 def quant_aware(program, place, config=None, scope=None, for_test=False):
-    """Add quantization  and dequantization operators to "program" 
+    """Add quantization  and dequantization operators to "program"
     for quantization training or testing.
 
     Args:
         program(fluid.Program): training or testing ``program``.
-        place(fluid.CPUPlace or fluid.CUDAPlace): This parameter represents 
+        place(fluid.CPUPlace or fluid.CUDAPlace): This parameter represents
             the executor run on which device.
-        config(dict, optional): configs for quantization. if None, will use default config. 
+        config(dict, optional): configs for quantization. if None, will use default config.
             Default: None.
-        scope(fluid.Scope): Scope records the mapping between variable names and variables, 
-            similar to brackets in programming languages. Usually users can use 
+        scope(fluid.Scope): Scope records the mapping between variable names and variables,
+            similar to brackets in programming languages. Usually users can use
             `fluid.global_scope <https://www.paddlepaddle.org.cn/documentation/docs/zh/develop/api_cn/executor_cn/global_scope_cn.html>`_.              When ``None`` will use `fluid.global_scope() <https://www.paddlepaddle.org.cn/documentation/docs/zh/develop/api_cn/executor_cn/global_scope_cn.html>`_ . Default: ``None``.
-        for_test(bool): If the 'program' parameter is a test program, this parameter should be set to ``True``. 
+        for_test(bool): If the 'program' parameter is a test program, this parameter should be set to ``True``.
             Otherwise, set to ``False``.Default: False
-    
+
     Returns:
         fluid.CompiledProgram | fluid.Program: Program with quantization and dequantization ``operators``
     """
@@ -249,45 +249,45 @@ def quant_post(executor,
                is_use_cache_file=False,
                cache_dir="./temp_post_training"):
     """
-    The function utilizes post training quantization method to quantize the 
-    fp32 model. It uses calibrate data to calculate the scale factor of 
-    quantized variables, and inserts fake quantization and dequantization 
+    The function utilizes post training quantization method to quantize the
+    fp32 model. It uses calibrate data to calculate the scale factor of
+    quantized variables, and inserts fake quantization and dequantization
     operators to obtain the quantized model.
 
     Args:
-        executor(fluid.Executor): The executor to load, run and save the 
+        executor(fluid.Executor): The executor to load, run and save the
             quantized model.
-        model_dir(str): The path of fp32 model that will be quantized, and 
-            the model and params that saved by ``fluid.io.save_inference_model`` 
+        model_dir(str): The path of fp32 model that will be quantized, and
+            the model and params that saved by ``fluid.io.save_inference_model``
             are under the path.
         quantize_model_path(str): The path to save quantized model using api
             ``fluid.io.save_inference_model``.
-        batch_generator(Python Generator): The batch generator provides 
+        batch_generator(Python Generator): The batch generator provides
                 calibrate data for DataLoader, and it returns a batch every
                 time. For sample_generator and batch_generator, only one
                 can be set. Beisdes, batch_generator supports lod tensor.
-        sample_generator(Python Generator): The sample generator provides 
+        sample_generator(Python Generator): The sample generator provides
             calibrate data for DataLoader, and it only returns a sample every time.
-        model_filename(str, optional): The name of model file. If parameters 
+        model_filename(str, optional): The name of model file. If parameters
             are saved in separate files, set it as 'None'. Default: 'None'.
         params_filename(str, optional): The name of params file.
-                When all parameters are saved in a single file, set it 
-                as filename. If parameters are saved in separate files, 
+                When all parameters are saved in a single file, set it
+                as filename. If parameters are saved in separate files,
                 set it as 'None'. Default : 'None'.
         save_model_filename(str): The name of model file to save the quantized inference program.  Default: '__model__'.
-        save_params_filename(str): The name of file to save all related parameters. 
+        save_params_filename(str): The name of file to save all related parameters.
                 If it is set None, parameters will be saved in separate files. Default: '__params__'.
         batch_size(int, optional): The batch size of DataLoader, default is 16.
-        batch_nums(int, optional): If batch_nums is not None, the number of calibrate 
+        batch_nums(int, optional): If batch_nums is not None, the number of calibrate
                         data is 'batch_size*batch_nums'. If batch_nums is None, use all data
                         generated by sample_generator  as calibrate data.
-        scope(fluid.Scope, optional): The scope to run program, use it to load 
+        scope(fluid.Scope, optional): The scope to run program, use it to load
                         and save variables. If scope is None, will use fluid.global_scope().
-        algo(str, optional): If algo=KL, use KL-divergenc method to 
-                        get the more precise scale factor. If algo='direct', use 
+        algo(str, optional): If algo=KL, use KL-divergenc method to
+                        get the more precise scale factor. If algo='direct', use
                         abs_max method to get the scale factor. Default: 'KL'.
         quantizable_op_type(list[str], optional): The list of op types
-                        that will be quantized. Default: ["conv2d", "depthwise_conv2d", 
+                        that will be quantized. Default: ["conv2d", "depthwise_conv2d",
                         "mul"].
         weight_bits(int, optional): quantization bit number for weights.
         activation_bits(int): quantization bit number for activation.
@@ -305,7 +305,7 @@ def quant_post(executor,
         is_use_cache_file(bool): If False, all temp data will be saved in memory. If True,
                                 all temp data will be saved to disk. Defalut: False.
         cache_dir(str): When 'is_use_cache_file' is True, temp data will be save in 'cache_dir'. Default is './temp_post_training'.
-    
+
     Returns:
         None
     """
@@ -338,16 +338,16 @@ def quant_post(executor,
 def convert(program, place, config=None, scope=None, save_int8=False):
     """
     convert quantized and well-trained ``program`` to final  quantized ``program`` that can be used to  save ``inference model``.
-    
+
     Args:
         program(fluid.Program): quantized and well-trained ``test program``.
         place(fluid.CPUPlace or fluid.CUDAPlace): This parameter represents the executor run on which device.
-        config(dict, optional): configs for convert. if set None, will use default config. 
+        config(dict, optional): configs for convert. if set None, will use default config.
             It must be same with config that used in 'quant_aware'. Default: None.
-        scope(fluid.Scope, optional):  Scope records the mapping between variable names and variables, 
-            similar to brackets in programming languages. Usually users can use 
+        scope(fluid.Scope, optional):  Scope records the mapping between variable names and variables,
+            similar to brackets in programming languages. Usually users can use
             `fluid.global_scope <https://www.paddlepaddle.org.cn/documentation/docs/zh/develop/api_cn/executor_cn/global_scope_cn.html>`_.              When ``None`` will use `fluid.global_scope() <https://www.paddlepaddle.org.cn/documentation/docs/zh/develop/api_cn/executor_cn/global_scope_cn.html>`_ . Default: ``None``.
-        save_int8: Whether to return ``program`` which model parameters' dtype is ``int8``. 
+        save_int8: Whether to return ``program`` which model parameters' dtype is ``int8``.
             This parameter can only be used to get model size. Default: ``False``.
 
     Returns:
@@ -382,7 +382,7 @@ def convert(program, place, config=None, scope=None, save_int8=False):
         convert_int8_pass = ConvertToInt8Pass(
             scope=fluid.global_scope(),
             place=place,
-            quantizable_op_type=support_op_types)
+            quantizable_op_type=quantize_op_types)
         convert_int8_pass.apply(test_graph)
         freezed_program_int8 = test_graph.to_program()
         return freezed_program, freezed_program_int8
@@ -401,35 +401,35 @@ def quant_post_only_weight(model_dir,
                            generate_test_model=False):
     '''
     In order to reduce the size of model, this api quantizes the weight
-    of some ops from float32 to int8/16. In the inference stage, the 
+    of some ops from float32 to int8/16. In the inference stage, the
     quantized weight will be dequantized to float32 again.
-        
+
     Args:
         model_dir(str): The path of the fp32 model that will be quantized,
                     and the model and params files are under the path.
         save_model_dir(str): The path to save the quantized model.
         model_filename(str, optional): The name of file used to load the inference
                     program. If it is None, the default filename '__model__' will be used. Default is 'None'.
-        params_filename(str, optional): The name of file used to load all parameters. When all parameters were saved 
+        params_filename(str, optional): The name of file used to load all parameters. When all parameters were saved
                 in a single binary file, set it as the real filename. If parameters were saved in separate files,
                 set it as 'None'. Default is 'None'.
         save_model_dir(str): The path used to save the quantized model.
-        save_model_filename(str, optional): The name of file to 
-                save the inference program. If it is None, the default 
+        save_model_filename(str, optional): The name of file to
+                save the inference program. If it is None, the default
                 filename '__model__' will be used. Default is 'None'.
-        save_params_filename(str, optional): The name of file to 
-                save all parameters. If it is None, parameters were 
-                saved in separate files. If it is not None, all 
+        save_params_filename(str, optional): The name of file to
+                save all parameters. If it is None, parameters were
+                saved in separate files. If it is not None, all
                 parameters were saved in a single binary file.
-        quantizable_op_type(list[str], optional): The list of ops 
+        quantizable_op_type(list[str], optional): The list of ops
                 that will be quantized, and the quantized ops should be
-                contained in ["conv2d", "depthwise_conv2d", "mul"]. 
+                contained in ["conv2d", "depthwise_conv2d", "mul"].
                 Default is ["conv2d", "depthwise_conv2d", "mul"].
-        weight_bits(int, optional): The bits for the quantized weight, 
+        weight_bits(int, optional): The bits for the quantized weight,
                 and it should be 8 or 16. Default is 8.
-        generate_test_model(bool, optional): If set generate_test_model 
-                as True, it saves a fake quantized model, in which the weights 
-                are quantized and dequantized. We can use PaddlePaddle to load 
+        generate_test_model(bool, optional): If set generate_test_model
+                as True, it saves a fake quantized model, in which the weights
+                are quantized and dequantized. We can use PaddlePaddle to load
                 the fake quantized model and test the accuracy on GPU or CPU.
     '''
 

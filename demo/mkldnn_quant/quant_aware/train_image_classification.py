@@ -15,6 +15,7 @@ from paddleslim.common import get_logger
 from paddleslim.analysis import flops
 from paddleslim.quant import quant_aware, quant_post, convert
 import models
+import models.classification_models as classification_models
 from utility import add_arguments, print_arguments
 
 _logger = get_logger(__name__, level=logging.INFO)
@@ -41,7 +42,7 @@ add_arg('log_period',       int, 10,                 "Log period in batches.")
 add_arg('checkpoint_dir',         str, "output",           "checkpoint save dir")
 # yapf: enable
 
-model_list = [m for m in dir(models) if "__" not in m]
+#  model_list = [m for m in models if "__" not in m]
 
 
 def piecewise_decay(args):
@@ -93,12 +94,12 @@ def compress(args):
         raise ValueError("{} is not supported.".format(args.data))
 
     image_shape = [int(m) for m in image_shape.split(",")]
-    assert args.model in model_list, "{} is not in lists: {}".format(
-        args.model, model_list)
+    #  assert args.model in model_list, "{} is not in lists: {}".format(
+    #  args.model, model_list)
     image = fluid.layers.data(name='image', shape=image_shape, dtype='float32')
     label = fluid.layers.data(name='label', shape=[1], dtype='int64')
     # model definition
-    model = models.__dict__[args.model]()
+    model = classification_models.__dict__[args.model]()
     out = model.net(input=image, class_dim=class_dim)
     cost = fluid.layers.cross_entropy(input=out, label=label)
     avg_cost = fluid.layers.mean(x=cost)
@@ -138,14 +139,17 @@ def compress(args):
         train_reader, batch_size=args.batch_size, drop_last=True)
 
     train_feeder = feeder = fluid.DataFeeder([image, label], place)
-    val_feeder = feeder = fluid.DataFeeder(
-        [image, label], place, program=val_program)
+    val_feeder = feeder = fluid.DataFeeder([image, label],
+                                           place,
+                                           program=val_program)
 
     def test(epoch, program):
         batch_id = 0
         acc_top1_ns = []
         acc_top5_ns = []
         for data in val_reader():
+            if batch_id == 2:
+                break
             start_time = time.time()
             acc_top1_n, acc_top5_n = exe.run(
                 program,
@@ -154,24 +158,25 @@ def compress(args):
             end_time = time.time()
             if batch_id % args.log_period == 0:
                 _logger.info(
-                    "Eval epoch[{}] batch[{}] - acc_top1: {}; acc_top5: {}; time: {}".
-                    format(epoch, batch_id,
-                           np.mean(acc_top1_n),
-                           np.mean(acc_top5_n), end_time - start_time))
+                    "Eval epoch[{}] batch[{}] - acc_top1: {}; acc_top5: {}; time: {}"
+                    .format(epoch, batch_id, np.mean(acc_top1_n),
+                            np.mean(acc_top5_n), end_time - start_time))
             acc_top1_ns.append(np.mean(acc_top1_n))
             acc_top5_ns.append(np.mean(acc_top5_n))
             batch_id += 1
 
-        _logger.info("Final eval epoch[{}] - acc_top1: {}; acc_top5: {}".
-                     format(epoch,
-                            np.mean(np.array(acc_top1_ns)),
-                            np.mean(np.array(acc_top5_ns))))
+        _logger.info(
+            "Final eval epoch[{}] - acc_top1: {}; acc_top5: {}".format(
+                epoch, np.mean(np.array(acc_top1_ns)),
+                np.mean(np.array(acc_top5_ns))))
         return np.mean(np.array(acc_top1_ns))
 
     def train(epoch, compiled_train_prog):
 
         batch_id = 0
         for data in train_reader():
+            if batch_id == 2:
+                break
             start_time = time.time()
             loss_n, acc_top1_n, acc_top5_n = exe.run(
                 compiled_train_prog,
@@ -183,9 +188,9 @@ def compress(args):
             acc_top5_n = np.mean(acc_top5_n)
             if batch_id % args.log_period == 0:
                 _logger.info(
-                    "epoch[{}]-batch[{}] - loss: {}; acc_top1: {}; acc_top5: {}; time: {}".
-                    format(epoch, batch_id, loss_n, acc_top1_n, acc_top5_n,
-                           end_time - start_time))
+                    "epoch[{}]-batch[{}] - loss: {}; acc_top1: {}; acc_top5: {}; time: {}"
+                    .format(epoch, batch_id, loss_n, acc_top1_n, acc_top5_n,
+                            end_time - start_time))
             batch_id += 1
 
     build_strategy = fluid.BuildStrategy()
@@ -241,9 +246,10 @@ def compress(args):
     ############################################################################################################
     # 4. Save inference model
     ############################################################################################################
-    model_path = os.path.join(args.save_float32_qat_dir, args.model,
-                              'act_' + quant_config['activation_quantize_type']
-                              + '_w_' + quant_config['weight_quantize_type'])
+    model_path = os.path.join(
+        args.save_float32_qat_dir, args.model,
+        'act_' + quant_config['activation_quantize_type'] + '_w_' +
+        quant_config['weight_quantize_type'])
     float_path = os.path.join(model_path, 'float')
     if not os.path.isdir(model_path):
         os.makedirs(model_path)
